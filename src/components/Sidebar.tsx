@@ -229,13 +229,15 @@ function SettingsPanel({ onShowKeyEntry }: { onShowKeyEntry?: () => void }) {
 							<span className="text-xs font-medium text-sidebar-foreground/70">Authentication</span>
 						</div>
 						<div
-							className="rounded-lg border p-2.5 space-y-3"
+							className="rounded-lg border p-2.5 space-y-2.5"
 							style={{
 								borderColor: "hsl(var(--sidebar-border))",
 								background: "hsl(var(--sidebar-background) / 0.5)",
 							}}
 						>
-							<ProviderAuthSection provider="anthropic" compact />
+							<OAuthRow provider="anthropic" icon="🤖" />
+							<OAuthRow provider="github-copilot" icon="🐙" />
+							<OAuthRow provider="openai-codex" icon="💬" />
 							<div
 								className="h-px"
 								style={{ background: "hsl(var(--sidebar-border))" }}
@@ -365,6 +367,25 @@ function SettingsPanel({ onShowKeyEntry }: { onShowKeyEntry?: () => void }) {
 				</div>
 			</ScrollArea>
 		</>
+	);
+}
+
+// ─── OAuth Row (compact provider with icon) ─────────────────────────
+
+function OAuthRow({
+	provider,
+	icon,
+}: {
+	provider: string;
+	icon: string;
+}) {
+	return (
+		<div className="flex items-start gap-2">
+			<span className="text-base mt-0.5 shrink-0">{icon}</span>
+			<div className="flex-1 min-w-0">
+				<ProviderAuthSection provider={provider} compact />
+			</div>
+		</div>
 	);
 }
 

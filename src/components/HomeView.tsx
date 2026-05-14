@@ -3,6 +3,8 @@
  *
  * Shows a polished splash with logo, tagline, and either the setup flow
  * or a brief "ready" state depending on auth status.
+ *
+ * Flow: splash → connect (API key prompt + OAuth provider cards)
  */
 
 import { useCallback, useState } from "react";
@@ -12,13 +14,20 @@ interface OnboardingProps {
 	onComplete: (apiKey: string) => Promise<void>;
 }
 
-type Step = "splash" | "api-key";
+type Step = "splash" | "connect";
+
+const PROVIDERS = [
+	{ id: "anthropic", label: "Claude Pro/Max", icon: "🤖", desc: "Use your Claude subscription" },
+	{ id: "github-copilot", label: "GitHub Copilot", icon: "🐙", desc: "Use your GitHub subscription" },
+	{ id: "openai-codex", label: "ChatGPT", icon: "💬", desc: "Use your ChatGPT Plus / Pro subscription" },
+] as const;
 
 export function HomeView({ onComplete }: OnboardingProps) {
 	const [step, setStep] = useState<Step>("splash");
 	const [apiKey, setApiKey] = useState("");
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
 
 	const handleSave = useCallback(async () => {
 		const trimmed = apiKey.trim();
@@ -33,6 +42,10 @@ export function HomeView({ onComplete }: OnboardingProps) {
 			setSaving(false);
 		}
 	}, [apiKey, onComplete]);
+
+	const handleProviderSelect = useCallback((id: string) => {
+		setExpandedProvider((prev) => (prev === id ? null : id));
+	}, []);
 
 	// ── Splash ──────────────────────────────────────────────────
 	if (step === "splash") {
@@ -67,7 +80,10 @@ export function HomeView({ onComplete }: OnboardingProps) {
 
 				{/* Feature highlights */}
 				<div className="w-full space-y-2.5 mb-8">
-					<FeatureRow icon="⚡" text="Powered by top open-source coding models" />
+					<FeatureRow
+						icon="⚡"
+						text="Connect to any AI — Claude, ChatGPT, Copilot, OpenAI, or local models"
+					/>
 					<FeatureRow icon="🧩" text="Extensible with tools, skills & themes" />
 					<FeatureRow icon="🔒" text="Your code stays local — no data leaves your machine" />
 				</div>
@@ -76,7 +92,7 @@ export function HomeView({ onComplete }: OnboardingProps) {
 				<div className="w-full space-y-3">
 					<button
 						type="button"
-						onClick={() => setStep("api-key")}
+						onClick={() => setStep("connect")}
 						className="block w-full text-center px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 cursor-pointer"
 						style={{
 							background: "hsl(var(--primary))",
@@ -103,78 +119,164 @@ export function HomeView({ onComplete }: OnboardingProps) {
 		);
 	}
 
-	// ── API Key Entry ────────────────────────────────────────────
+	// ── Connect ─────────────────────────────────────────────────
 	return (
-		<div className="flex flex-col items-center justify-center h-full px-8 py-12 max-w-lg mx-auto">
-			<div className="mb-6">
-				<div
-					className="w-14 h-14 rounded-xl flex items-center justify-center"
-					style={{
-						background: "hsl(var(--primary) / 0.1)",
-					}}
-				>
-					<span className="text-xl">🔑</span>
-				</div>
-			</div>
-
-			<h1 className="text-xl font-bold mb-2" style={{ color: "hsl(var(--foreground))" }}>
-				Connect a provider
+		<div className="flex flex-col items-center h-full px-8 py-8 max-w-lg mx-auto overflow-y-auto">
+			<h1 className="text-xl font-bold mb-1" style={{ color: "hsl(var(--foreground))" }}>
+				Connect your AI
 			</h1>
 			<p className="text-sm mb-6 text-center" style={{ color: "hsl(var(--muted-foreground))" }}>
-				Sign in with a Claude subscription, or paste an API key. Either stays on your machine.
+				Choose how to connect — your credentials stay on your machine.
 			</p>
 
-			<div className="w-full space-y-4">
-				<ProviderAuthSection provider="anthropic" />
-
+			<div className="w-full space-y-5">
+				{/* ═══ ZONE 1: Quick Start — API Key (most prominent) ═══ */}
 				<div
-					className="flex items-center gap-2 text-[10px] uppercase tracking-wider"
-					style={{ color: "hsl(var(--muted-foreground))" }}
+					className="rounded-xl border-2 p-4 space-y-3"
+					style={{
+						borderColor: "hsl(var(--primary) / 0.3)",
+						background: "hsl(var(--primary) / 0.05)",
+					}}
 				>
-					<div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
-					<span>or use an API key</span>
-					<div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
+					<div className="flex items-center gap-2">
+						<span className="text-lg">⚡</span>
+						<span className="text-sm font-semibold" style={{ color: "hsl(var(--foreground))" }}>
+							Quick Start — Paste an API Key
+						</span>
+					</div>
+					<p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+						The fastest way to start. Get a key from OpenCode Go and paste it below.
+					</p>
+
+					<input
+						type="password"
+						value={apiKey}
+						onChange={(e) => setApiKey(e.target.value)}
+						placeholder="OpenCode Go API key (sk-…)"
+						className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm outline-none transition-colors"
+						style={{
+							borderColor: "hsl(var(--border))",
+							color: "hsl(var(--foreground))",
+						}}
+						onKeyDown={(e) => {
+							if (e.key === "Enter" && apiKey.trim() && !saving) {
+								handleSave();
+							}
+						}}
+					/>
+					{error && (
+						<p className="text-xs" style={{ color: "hsl(var(--destructive))" }}>
+							{error}
+						</p>
+					)}
+
+					<button
+						type="button"
+						disabled={!apiKey.trim() || saving}
+						onClick={handleSave}
+						className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 cursor-pointer"
+						style={{
+							background: "hsl(var(--primary))",
+							color: "hsl(var(--primary-foreground))",
+						}}
+					>
+						{saving ? "Saving..." : "Save & Start Chatting"}
+					</button>
 				</div>
 
-				<input
-					type="password"
-					value={apiKey}
-					onChange={(e) => setApiKey(e.target.value)}
-					placeholder="OpenCode Go API key (sk-…)"
-					className="w-full px-4 py-2.5 rounded-xl border bg-transparent text-sm outline-none transition-colors"
-					style={{
-						borderColor: "hsl(var(--border))",
-						color: "hsl(var(--foreground))",
-					}}
-					onKeyDown={(e) => {
-						if (e.key === "Enter" && apiKey.trim() && !saving) {
-							handleSave();
-						}
-					}}
-				/>
-				{error && (
-					<p className="text-xs" style={{ color: "hsl(var(--destructive))" }}>
-						{error}
+				{/* ═══ ZONE 2: OAuth Provider Cards ═══ */}
+				<div>
+					<div className="flex items-center gap-2 mb-3">
+						<div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
+						<span
+							className="text-[10px] uppercase tracking-wider shrink-0"
+							style={{ color: "hsl(var(--muted-foreground))" }}
+						>
+							or sign in with a subscription
+						</span>
+						<div className="flex-1 h-px" style={{ background: "hsl(var(--border))" }} />
+					</div>
+
+					<div className="space-y-2">
+						{PROVIDERS.map((p) => {
+							const isExpanded = expandedProvider === p.id;
+							return (
+								<div
+									key={p.id}
+									className="rounded-xl border overflow-hidden transition-all"
+									style={{
+										borderColor: isExpanded
+											? "hsl(var(--primary) / 0.3)"
+											: "hsl(var(--border))",
+									}}
+								>
+									{/* Card header — always visible */}
+									<button
+										type="button"
+										onClick={() => handleProviderSelect(p.id)}
+										className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/30 cursor-pointer"
+										style={{
+											background: isExpanded ? "hsl(var(--muted) / 0.2)" : "transparent",
+										}}
+									>
+										<span className="text-xl">{p.icon}</span>
+										<div className="flex-1 min-w-0">
+											<div
+												className="text-sm font-medium"
+												style={{ color: "hsl(var(--foreground))" }}
+											>
+												{p.label}
+											</div>
+											<div
+												className="text-xs"
+												style={{ color: "hsl(var(--muted-foreground))" }}
+											>
+												{p.desc}
+											</div>
+										</div>
+										<span
+											className="text-xs shrink-0"
+											style={{ color: "hsl(var(--muted-foreground))" }}
+										>
+											{isExpanded ? "▲" : "▼"}
+										</span>
+									</button>
+
+									{/* Expanded ProviderAuthSection */}
+									{isExpanded && (
+										<div className="px-4 pb-4">
+											<ProviderAuthSection provider={p.id} />
+										</div>
+									)}
+								</div>
+							);
+						})}
+					</div>
+				</div>
+
+				{/* ═══ ZONE 3: Advanced / Bring your own ═══ */}
+				<div className="text-center">
+					<p className="text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+						Have a different provider? Use a local model, Google Gemini, or any API
+						{" — "}
+						<span
+							className="font-medium"
+							style={{ color: "hsl(var(--primary))" }}
+						>
+							configure in Settings
+						</span>
+						.
 					</p>
-				)}
+				</div>
 
+				{/* Back */}
 				<button
 					type="button"
-					disabled={!apiKey.trim() || saving}
-					onClick={handleSave}
-					className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 cursor-pointer"
-					style={{
-						background: "hsl(var(--primary))",
-						color: "hsl(var(--primary-foreground))",
+					onClick={() => {
+						setStep("splash");
+						setExpandedProvider(null);
 					}}
-				>
-					{saving ? "Saving..." : "Save API Key"}
-				</button>
-
-				<button
-					type="button"
-					onClick={() => setStep("splash")}
-					className="block w-full text-center text-xs cursor-pointer"
+					className="block w-full text-center text-xs py-1 cursor-pointer"
 					style={{ color: "hsl(var(--muted-foreground))" }}
 				>
 					← Back

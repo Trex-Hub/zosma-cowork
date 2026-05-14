@@ -13,13 +13,14 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-스크린샷](./assets/screenshot.png)
+## Gallery
 
-## Demo
+<img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
-![Zosma Cowork demo](./assets/demo.gif)
+<img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*자연어 에이전트를 이용한 인보이스 처리. [전체 데모 비디오](./assets/demo.mp4) 보기 (1:16).*
+*자연어 에이전트를 이용한 인보이스 처리. 더 많은 데모 보기: [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
+
 ## Zosma Cowork 를 선택해야 하는 이유
 
 ### 🌟 pi 기반 최초의 데스크톱 코워커

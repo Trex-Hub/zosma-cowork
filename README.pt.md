@@ -13,13 +13,14 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-captura](./assets/screenshot.png)
+## Gallery
 
-## Demo
+<img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
-![Zosma Cowork demo](./assets/demo.gif)
+<img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*Processamento de faturas com agentes de linguagem natural. Assista ao [vídeo completo](./assets/demo.mp4) (1:16).*
+*Processamento de faturas com agentes de linguagem natural. Mais demonstrações em [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
+
 ## Por que Zosma Cowork?
 
 ### 🌟 O primeiro coworker de desktop baseado em pi

@@ -13,13 +13,14 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-スクリーンショット](./assets/screenshot.png)
+## Gallery
 
-## Demo
+<img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
-![Zosma Cowork demo](./assets/demo.gif)
+<img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*自然言語エージェントによる請求書処理。[フルデモビデオ](./assets/demo.mp4)を見る (1:16)。*
+*自然言語エージェントによる請求書処理。他のデモはこちら: [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
+
 ## Zosma Cowork の特徴
 
 ### 🌟 pi 初のデスクトップコワーカー

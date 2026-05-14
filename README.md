@@ -1,12 +1,15 @@
-# Zosma Cowork
+# Zosma Cowork 🇮🇳
 
 **English** | [中文](./README.zh.md) | [Español](./README.es.md) | [日本語](./README.ja.md) | [Deutsch](./README.de.md) | [Français](./README.fr.md) | [Português](./README.pt.md) | [Русский](./README.ru.md) | [한국어](./README.ko.md) | [हिंदी](./README.hi.md)
 
 [![CI](https://github.com/zosmaai/zosma-cowork/actions/workflows/ci.yml/badge.svg)](https://github.com/zosmaai/zosma-cowork/actions/workflows/ci.yml)
 [![Release](https://github.com/zosmaai/zosma-cowork/actions/workflows/release.yml/badge.svg)](https://github.com/zosmaai/zosma-cowork/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Made in India](https://img.shields.io/badge/Made_in_India-🇮🇳-FF9933?labelColor=138808)](https://zosma.ai)
 
-> A desktop AI coworker built on the [pi coding agent](https://github.com/earendil-works/pi-coding-agent) — streaming, thinking, tool calls, multi-turn sessions, and steering, all in a beautiful native app.
+> 🇮🇳 **India's first Non-Coding Agentic Work Harness** — A desktop AI coworker built on the [pi coding agent](https://github.com/earendil-works/pi-coding-agent) — streaming, thinking, tool calls, multi-turn sessions, and steering, all in a beautiful native app.
+>
+> **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
 ![Zosma Cowork screenshot](./assets/screenshot.png)
 
@@ -180,6 +183,14 @@ zosma-cowork/
 ├── docs/                         # Architecture & plans
 └── .github/workflows/            # CI/CD
 ```
+
+## 🇮🇳 Made in India
+
+**Zosma Cowork** is proudly built in **Bengaluru, India** by **ZOSMAAI SOLUTIONS PRIVATE LIMITED**.
+
+From India to the World 🌏 — with ❤️ from the team at [Zosma AI](https://zosma.ai).
+
+> *"India doesn't just consume technology — we build it, we ship it, we lead it."*
 
 ## License
 

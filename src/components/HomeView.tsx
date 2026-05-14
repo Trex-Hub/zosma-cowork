@@ -69,11 +69,14 @@ export function HomeView({ onComplete }: OnboardingProps) {
 
 				{/* Tagline */}
 				<h1
-					className="text-3xl font-bold text-center mb-2"
+					className="text-3xl font-bold text-center mb-1"
 					style={{ color: "hsl(var(--foreground))" }}
 				>
 					Zosma Cowork
 				</h1>
+				<p className="text-xs text-center mb-1" style={{ color: "hsl(var(--muted-foreground))" }}>
+					🇮🇳 India's first Non-Coding Agentic Work Harness
+				</p>
 				<p className="text-base text-center mb-8" style={{ color: "hsl(var(--muted-foreground))" }}>
 					Your AI pair programmer, always in sync.
 				</p>
@@ -86,6 +89,16 @@ export function HomeView({ onComplete }: OnboardingProps) {
 					/>
 					<FeatureRow icon="🧩" text="Extensible with tools, skills & themes" />
 					<FeatureRow icon="🔒" text="Your code stays local — no data leaves your machine" />
+				</div>
+
+				{/* Made in India branding */}
+				<div className="w-full text-center mb-6">
+					<p className="text-[10px]" style={{ color: "hsl(var(--muted-foreground) / 0.6)" }}>
+						🇮🇳 Made in India — From India to the World 🌏
+					</p>
+					<p className="text-[9px]" style={{ color: "hsl(var(--muted-foreground) / 0.4)" }}>
+						With ❤️ from Zosma AI
+					</p>
 				</div>
 
 				{/* CTA */}
@@ -281,6 +294,11 @@ export function HomeView({ onComplete }: OnboardingProps) {
 				>
 					← Back
 				</button>
+
+				{/* Made in India branding */}
+				<p className="text-[10px] text-center pt-4" style={{ color: "hsl(var(--muted-foreground) / 0.4)" }}>
+					🇮🇳 Made in India — With ❤️ from Zosma AI
+				</p>
 			</div>
 		</div>
 	);

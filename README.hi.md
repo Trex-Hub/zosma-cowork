@@ -1,12 +1,15 @@
-# Zosma Cowork
+# Zosma Cowork 🇮🇳
 
 [English](./README.md) | [中文](./README.zh.md) | [Español](./README.es.md) | [日本語](./README.ja.md) | [Deutsch](./README.de.md) | [Français](./README.fr.md) | [Português](./README.pt.md) | [Русский](./README.ru.md) | [한국어](./README.ko.md) | **हिंदी**
 
 [![CI](https://github.com/zosmaai/zosma-cowork/actions/workflows/ci.yml/badge.svg)](https://github.com/zosmaai/zosma-cowork/actions/workflows/ci.yml)
 [![Release](https://github.com/zosmaai/zosma-cowork/actions/workflows/release.yml/badge.svg)](https://github.com/zosmaai/zosma-cowork/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Made in India](https://img.shields.io/badge/Made_in_India-🇮🇳-FF9933?labelColor=138808)](https://zosma.ai)
 
-> [pi agent SDK](https://github.com/earendil-works/pi-coding-agent) द्वारा संचालित डेस्कटॉप AI सहकर्मी — स्ट्रीमिंग, सोच की प्रक्रिया, टूल कॉल, मल्टी-टर्न सेशन और स्टीयरिंग, सब कुछ एक सुंदर नेटिव ऐप में।
+> 🇮🇳 **भारत का पहला नॉन-कोडिंग एजेंटिक वर्क हार्नेस** — [pi agent SDK](https://github.com/earendil-works/pi-coding-agent) द्वारा संचालित डेस्कटॉप AI सहकर्मी — स्ट्रीमिंग, सोच की प्रक्रिया, टूल कॉल, मल्टी-टर्न सेशन और स्टीयरिंग, सब कुछ एक सुंदर नेटिव ऐप में।
+>
+> **भारत से दुनिया के लिए 🌏 — [Zosma AI](https://zosma.ai) द्वारा ❤️ से निर्मित**
 
 ![zosma-cowork-स्क्रीनशॉट](./assets/screenshot.png)
 
@@ -65,6 +68,14 @@ npm run dev
 | मॉडल परिभाषाएँ | `~/.pi/agent/models.json` | पहले `pi` रन पर बनाया गया |
 | एक्सटेंशन और स्किल | `~/.pi/agent/extensions/` | `pi install` से इंस्टॉल किए गए |
 | सेशन इतिहास | `~/.zosmaai/cowork/` | Zosma Cowork द्वारा प्रबंधित |
+
+## 🇮🇳 भारत में निर्मित
+
+**Zosma Cowork** को **बेंगलुरु, भारत** में **ZOSMAAI SOLUTIONS PRIVATE LIMITED** द्वारा गर्व से बनाया गया है।
+
+भारत से दुनिया के लिए 🌏 — [Zosma AI](https://zosma.ai) टीम की ओर से ❤️ सहित।
+
+> *"भारत केवल तकनीक का उपभोग नहीं करता — हम इसे बनाते हैं, इसे भेजते हैं, इसमें नेतृत्व करते हैं।"*
 
 ## लाइसेंस
 

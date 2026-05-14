@@ -13,13 +13,13 @@
 >
 > **भारत से दुनिया के लिए 🌏 — [Zosma AI](https://zosma.ai) द्वारा ❤️ से निर्मित**
 
-## डेमो
+## गैलरी
 
 <img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
 <img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*प्राकृतिक भाषा एजेंटों के साथ इनवॉइस प्रोसेसिंग। [पूरा डेमो वीडियो](./assets/demo.mp4) देखें (1:16)।*
+*प्राकृतिक भाषा एजेंटों के साथ इनवॉइस प्रोसेसिंग। और डेमो देखें: [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
 
 ## क्यों Zosma Cowork?
 

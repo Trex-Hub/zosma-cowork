@@ -13,15 +13,13 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-screenshot](./assets/screenshot.png)
-
-## Demo
+## Gallery
 
 <img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
 <img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*Rechnungsverarbeitung mit natürlichen Sprachagenten. Siehe das [vollständige Demo-Video](./assets/demo.mp4) (1:16).*
+*Rechnungsverarbeitung mit natürlichen Sprachagenten. Weitere Demos: [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
 
 ## Warum Zosma Cowork?
 

@@ -13,15 +13,13 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-capture](./assets/screenshot.png)
-
-## Demo
+## Gallery
 
 <img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
 <img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*Traitement de factures avec des agents en langage naturel. Regardez la [vidéo complète](./assets/demo.mp4) (1:16).*
+*Traitement de factures avec des agents en langage naturel. Plus de démos sur [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
 
 ## Pourquoi Zosma Cowork ?
 

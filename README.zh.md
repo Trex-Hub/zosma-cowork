@@ -11,15 +11,13 @@
 >
 > **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
 
-![zosma-cowork-截图](./assets/screenshot.png)
-
-## Demo
+## Gallery
 
 <img src="./assets/demo.gif" width="100%" alt="Zosma Cowork demo" />
 
 <img src="./assets/screenshot.png" width="100%" alt="Zosma Cowork screenshot" />
 
-*使用自然语言智能体处理发票。观看[完整演示视频](./assets/demo.mp4) (1:16)。*
+*使用自然语言智能体处理发票。更多演示请访问 [zosma.ai/zosma-cowork/gallery](https://www.zosma.ai/zosma-cowork/gallery)*
 
 ## 为什么选择 Zosma Cowork？
 

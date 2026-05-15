@@ -37,6 +37,8 @@ jobs:
 
       - name: Build frontend
         run: npm run build:frontend
+        env:
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
 
   agent-sidecar:
     name: Agent Sidecar Lint & Build
@@ -111,3 +113,6 @@ jobs:
 
       - name: Build check
         run: cargo build --workspace
+        env:
+          APTABASE_KEY: ${{ secrets.APTABASE_KEY }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}

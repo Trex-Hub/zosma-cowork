@@ -8,7 +8,7 @@
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -20,9 +20,6 @@ use tauri::Manager;
 static DEFAULT_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 static HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 static INGEST_URL: &str = "https://in.aptabase.com/v1/event";
-
-/// Key under which we store the AnalyticsHandle in Tauri state.
-const STATE_KEY: &str = "zosma-analytics";
 
 /// Thread-safe internal queue of pending events.
 struct EventQueue {
@@ -109,10 +106,7 @@ impl Analytics {
 
     /// Track an event if analytics is enabled.
     pub fn track_event(&self, name: &str, props: Option<Value>) {
-        if !self
-            .enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        if !self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
             return;
         }
 
@@ -130,7 +124,7 @@ impl Analytics {
     }
 
     /// Spawn the background flush loop on the Tauri async runtime.
-    fn start_flush_loop(&self, handle: tauri::AppHandle) {
+    fn start_flush_loop(&self) {
         let queue = self.queue.clone();
         tauri::async_runtime::spawn(async move {
             loop {
@@ -156,10 +150,7 @@ pub(crate) fn track_analytics_event(
 
 /// Tauri IPC command — enable or disable analytics.
 #[tauri::command]
-pub(crate) fn set_analytics_enabled(
-    app: tauri::AppHandle,
-    enabled: bool,
-) -> Result<(), String> {
+pub(crate) fn set_analytics_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     if let Some(analytics) = app.try_state::<Analytics>() {
         analytics.set_enabled(enabled);
     }
@@ -172,7 +163,7 @@ pub(crate) fn set_analytics_enabled(
 /// so we are safely within Tauri's tokio runtime.
 pub(crate) fn setup(app: &mut tauri::App, app_key: &str) -> Result<(), Box<dyn std::error::Error>> {
     let analytics = Analytics::new(app_key);
-    analytics.start_flush_loop(app.handle().clone());
+    analytics.start_flush_loop();
     app.manage(analytics);
     Ok(())
 }

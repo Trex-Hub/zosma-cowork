@@ -175,7 +175,13 @@ export function ExtensionDetail({
 								{skill.url && (
 									<button
 										type="button"
-										onClick={() => openUrl(skill.url)}
+										onClick={async () => {
+											try {
+												await openUrl(skill.url);
+											} catch (e) {
+												console.error("Failed to open URL:", e);
+											}
+										}}
 										className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none p-0"
 									>
 										<svg
@@ -199,7 +205,13 @@ export function ExtensionDetail({
 								{npmData?.homepage && (
 									<button
 										type="button"
-										onClick={() => openUrl(npmData.homepage)}
+										onClick={async () => {
+											try {
+												await openUrl(npmData.homepage);
+											} catch (e) {
+												console.error("Failed to open homepage:", e);
+											}
+										}}
 										className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none p-0"
 									>
 										<svg

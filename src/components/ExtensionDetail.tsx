@@ -1,5 +1,5 @@
-import { open as openUrl } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { openExternalUrl } from "../lib/utils";
 import type { NpmData, SkillResult } from "../lib/skillRegistry";
 import {
 	fetchNpmDataForSkill,
@@ -177,7 +177,7 @@ export function ExtensionDetail({
 										type="button"
 										onClick={async () => {
 											try {
-												await openUrl(skill.url);
+												await openExternalUrl(skill.url);
 											} catch (e) {
 												console.error("Failed to open URL:", e);
 											}
@@ -207,7 +207,7 @@ export function ExtensionDetail({
 										type="button"
 										onClick={async () => {
 											try {
-												await openUrl(npmData.homepage);
+												await openExternalUrl(npmData.homepage);
 											} catch (e) {
 												console.error("Failed to open homepage:", e);
 											}

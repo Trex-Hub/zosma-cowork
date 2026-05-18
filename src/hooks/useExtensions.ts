@@ -35,6 +35,32 @@ interface UseExtensionsReturn {
 	clearError: () => void;
 }
 
+/** Retry an async operation up to `maxRetries` times when it fails with a "closed" error.
+ * Uses exponential backoff (500ms → 1000ms → 2000ms).
+ * Non-"closed" errors are thrown immediately. */
+async function retryOnClosed<T>(
+	fn: () => Promise<T>,
+	maxRetries = 3,
+	initialDelay = 500,
+): Promise<T> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			return await fn();
+		} catch (err) {
+			lastError = err;
+			const msg = err instanceof Error ? err.message : String(err);
+			// Only retry on "closed" (sidecar not ready yet)
+			if (msg === "closed" && attempt < maxRetries) {
+				await new Promise((r) => setTimeout(r, initialDelay * Math.pow(2, attempt)));
+				continue;
+			}
+			throw err;
+		}
+	}
+	throw lastError;
+}
+
 export interface NpmSearchResult {
 	name: string;
 	description: string;
@@ -52,8 +78,8 @@ export function useExtensions(): UseExtensionsReturn {
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await invoke<{ extensions?: ZemExtension[] } | ZemExtension[]>(
-				"list_extensions",
+			const result = await retryOnClosed(() =>
+				invoke<{ extensions?: ZemExtension[] } | ZemExtension[]>("list_extensions"),
 			);
 			// Handle both array response and {extensions: [...]} response
 			const list = Array.isArray(result)

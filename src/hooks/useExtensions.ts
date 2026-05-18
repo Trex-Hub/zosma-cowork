@@ -9,6 +9,8 @@ import type { ZemExtension } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 
+import { retryOnClosed } from "@/lib/utils";
+
 interface UseExtensionsReturn {
 	/** Currently installed extensions */
 	extensions: ZemExtension[];
@@ -52,8 +54,8 @@ export function useExtensions(): UseExtensionsReturn {
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await invoke<{ extensions?: ZemExtension[] } | ZemExtension[]>(
-				"list_extensions",
+			const result = await retryOnClosed(() =>
+				invoke<{ extensions?: ZemExtension[] } | ZemExtension[]>("list_extensions"),
 			);
 			// Handle both array response and {extensions: [...]} response
 			const list = Array.isArray(result)

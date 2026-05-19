@@ -40,8 +40,7 @@ jobs:
           MSI_URL="https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64_en-US.msi"
           echo "Downloading MSI from: ${MSI_URL}"
           curl -fSL -o "zosma-cowork.msi" "${MSI_URL}" || {
-            echo "⚠️  MSI not found at ${MSI_URL} — trying alternative naming..."
-            # Try without en-US suffix
+            echo "MSI not found at ${MSI_URL} — trying alternative naming..."
             MSI_URL="https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64.msi"
             curl -fSL -o "zosma-cowork.msi" "${MSI_URL}" || echo "MSI not found"
           }
@@ -68,61 +67,60 @@ jobs:
           MSI_SHA256="${{ steps.hashes.outputs.msi_sha256 }}"
           EXE_SHA256="${{ steps.hashes.outputs.exe_sha256 }}"
 
-          # Create winget manifest directory structure
           MANIFEST_DIR="manifests/z/ZosmaAI/ZosmaCowork/${VERSION}"
           mkdir -p "${MANIFEST_DIR}"
 
-          # Generate the YAML manifest
-          cat > "${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml" << YAML
-# Created automatically by update-winget.yml workflow
-PackageIdentifier: ZosmaAI.ZosmaCowork
-PackageVersion: "${VERSION}"
-PackageLocale: en-US
-Publisher: Zosma AI
-PublisherUrl: https://zosma.ai
-PublisherSupportUrl: https://github.com/zosmaai/zosma-cowork/issues
-PackageName: Zosma Cowork
-PackageUrl: https://zosma.ai/zosma-cowork
-License: MIT
-LicenseUrl: https://github.com/zosmaai/zosma-cowork/blob/main/LICENSE
-ShortDescription: Desktop AI coworker — streaming, thinking, tool calls, multi-turn sessions. India's first Non-Coding Agentic Work Harness.
-Moniker: zosma-cowork
-Tags:
-  - ai
-  - agent
-  - coworker
-  - pi
-  - coding
-  - assistant
-YAML
+          # Build the manifest YAML line by line (avoiding shell heredocs which
+          # conflict with YAML block scalar indentation in GitHub Actions).
+          FILE="${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml"
 
-          # Add MSI installer
-          cat >> "${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml" << YAML
+          echo "# Created automatically by update-winget.yml workflow" > "$FILE"
+          echo "PackageIdentifier: ZosmaAI.ZosmaCowork" >> "$FILE"
+          echo "PackageVersion: \"${VERSION}\"" >> "$FILE"
+          echo "PackageLocale: en-US" >> "$FILE"
+          echo "Publisher: Zosma AI" >> "$FILE"
+          echo "PublisherUrl: https://zosma.ai" >> "$FILE"
+          echo "PublisherSupportUrl: https://github.com/zosmaai/zosma-cowork/issues" >> "$FILE"
+          echo "PackageName: Zosma Cowork" >> "$FILE"
+          echo "PackageUrl: https://zosma.ai/zosma-cowork" >> "$FILE"
+          echo "License: MIT" >> "$FILE"
+          echo "LicenseUrl: https://github.com/zosmaai/zosma-cowork/blob/main/LICENSE" >> "$FILE"
+          echo "ShortDescription: Desktop AI coworker - streaming, thinking, tool calls, multi-turn sessions" >> "$FILE"
+          echo "Moniker: zosma-cowork" >> "$FILE"
+          echo "Tags:" >> "$FILE"
+          echo "  - ai" >> "$FILE"
+          echo "  - agent" >> "$FILE"
+          echo "  - coworker" >> "$FILE"
+          echo "  - pi" >> "$FILE"
+          echo "  - coding" >> "$FILE"
+          echo "  - assistant" >> "$FILE"
 
-Installers:
-  - Architecture: x64
-    InstallerType: msi
-    InstallerUrl: https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64_en-US.msi
-    InstallerSha256: "${MSI_SHA256}"
-YAML
-
-          # Add EXE installer if available
-          if [ -n "${EXE_SHA256}" ]; then
-            cat >> "${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml" << YAML
-  - Architecture: x64
-    InstallerType: exe
-    InstallerUrl: https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64-setup.exe
-    InstallerSha256: "${EXE_SHA256}"
-    InstallerSwitches:
-      Silent: /S
-      SilentWithProgress: /S
-YAML
+          # Add installer sections
+          if [ -n "${MSI_SHA256}" ]; then
+            echo "" >> "$FILE"
+            echo "Installers:" >> "$FILE"
+            echo "  - Architecture: x64" >> "$FILE"
+            echo "    InstallerType: msi" >> "$FILE"
+            echo "    InstallerUrl: https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64_en-US.msi" >> "$FILE"
+            echo "    InstallerSha256: \"${MSI_SHA256}\"" >> "$FILE"
           fi
 
-          cat >> "${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml" << YAML
+          if [ -n "${EXE_SHA256}" ]; then
+            if [ -z "${MSI_SHA256}" ]; then
+              echo "" >> "$FILE"
+              echo "Installers:" >> "$FILE"
+            fi
+            echo "  - Architecture: x64" >> "$FILE"
+            echo "    InstallerType: exe" >> "$FILE"
+            echo "    InstallerUrl: https://github.com/zosmaai/zosma-cowork/releases/download/v${VERSION}/zosma-cowork_${VERSION}_x64-setup.exe" >> "$FILE"
+            echo "    InstallerSha256: \"${EXE_SHA256}\"" >> "$FILE"
+            echo "    InstallerSwitches:" >> "$FILE"
+            echo "      Silent: /S" >> "$FILE"
+            echo "      SilentWithProgress: /S" >> "$FILE"
+          fi
 
-ManifestVersion: 1.9.0
-YAML
+          echo "" >> "$FILE"
+          echo "ManifestVersion: 1.9.0" >> "$FILE"
 
           echo "manifest_dir=${MANIFEST_DIR}" >> $GITHUB_OUTPUT
           echo "Generated manifest at ${MANIFEST_DIR}/ZosmaAI.ZosmaCowork.yaml"
@@ -152,7 +150,8 @@ YAML
 
       - name: Print manifest
         run: |
-          echo "## Generated Winget Manifest"
-          echo '```yaml'
-          cat "${{ steps.manifest.outputs.manifest_dir }}/ZosmaAI.ZosmaCowork.yaml"
-          echo '```'
+          echo "Generated manifest:"
+          echo "---"
+          cat "manifests/z/ZosmaAI/ZosmaCowork/${{ steps.version.outputs.version }}/ZosmaAI.ZosmaCowork.yaml" 2>/dev/null || echo "(manifest not found)"
+          echo "---"
+          echo "To submit, copy the 'manifests/' directory and create a PR against microsoft/winget-pkgs."

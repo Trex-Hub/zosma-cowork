@@ -84,7 +84,7 @@ jobs:
         run: npm ci
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
 
       - name: Install system deps
         run: |

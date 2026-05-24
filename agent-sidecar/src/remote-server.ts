@@ -70,7 +70,14 @@ const sseClients = new Set<http.ServerResponse>();
 
 /** Generate a random 6-digit PIN */
 function generatePin(): string {
-	return String(randomBytes(3).readUInt16BE(0) % 1000000).padStart(6, "0");
+	// Rejection-sampled: unbiased 6-digit PIN from 32-bit random
+	const MAX = 1000000;
+	const CEIL = Math.floor(0xffffffff / MAX) * MAX;
+	let val: number;
+	do {
+		val = randomBytes(4).readUInt32BE(0);
+	} while (val >= CEIL);
+	return String(val % MAX).padStart(6, "0");
 }
 
 // ---------------------------------------------------------------------------

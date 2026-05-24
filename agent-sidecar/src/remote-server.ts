@@ -100,7 +100,9 @@ async function handleRequest(
 	res: http.ServerResponse,
 	zosmaDir: string,
 ): Promise<void> {
-	const url = req.url || "/";
+	// Parse URL path without query string for route matching.
+	// Node.js req.url includes the query string (e.g. "/api/events?pin=123456").
+	const requestPath = (req.url || "/").split("?")[0];
 	const method = req.method || "GET";
 
 	// CORS preflight
@@ -111,13 +113,13 @@ async function handleRequest(
 	}
 
 	// Static file serving (mobile web UI)
-	if (method === "GET" && !url.startsWith("/api/")) {
+	if (method === "GET" && !requestPath.startsWith("/api/")) {
 		serveStatic(req, res);
 		return;
 	}
 
 	// ── POST /api/command ──────────────────────────────────────────────
-	if (method === "POST" && url === "/api/command") {
+	if (method === "POST" && requestPath === "/api/command") {
 		if (!verifyRequestAuth(req)) {
 			writeJson(res, 401, { type: "error", id: "auth", message: "Invalid or missing PIN" });
 			return;
@@ -127,7 +129,7 @@ async function handleRequest(
 	}
 
 	// ── GET /api/events (SSE — Server-Sent Events) ─────────────────────
-	if (method === "GET" && url === "/api/events") {
+	if (method === "GET" && requestPath === "/api/events") {
 		if (!verifyRequestAuth(req)) {
 			writeJson(res, 401, { type: "error", id: "auth", message: "Invalid or missing PIN" });
 			return;
@@ -137,19 +139,20 @@ async function handleRequest(
 	}
 
 	// ── GET /api/status ────────────────────────────────────────────────
-	if (method === "GET" && url === "/api/status") {
+	if (method === "GET" && requestPath === "/api/status") {
+		const st = getRemoteStatus();
 		writeJson(res, 200, {
-			running: true,
-			port: state?.config.port,
-			host: state?.config.host,
-			connectedClients: state?.wss.clients.size || 0,
+			running: st.running,
+			port: st.port,
+			host: st.host,
+			connectedClients: st.connectedClients ?? 0,
 			needsPin: !isLocalRequest(req),
 		});
 		return;
 	}
 
 	// ── POST /api/verify-pin ──────────────────────────────────────────
-	if (method === "POST" && url === "/api/verify-pin") {
+	if (method === "POST" && requestPath === "/api/verify-pin") {
 		await handlePinVerification(req, res);
 		return;
 	}
@@ -215,9 +218,10 @@ async function handlePinVerification(
 		// Generate a session token for this connection
 		const token = randomBytes(16).toString("hex");
 		writeJson(res, 200, { success: true, token });
-		// Generate a new PIN for next pairing
-		state.pin = generatePin();
-		state.pinExpiresAt = Date.now() + 120_000; // 2 minutes
+		// NOTE: PIN is NOT regenerated here. The original PIN stays valid
+		// until its natural 2-minute expiry so the mobile app can continue
+		// using it for subsequent API calls (SSE connection, commands).
+		// If the user needs a fresh PIN, they can toggle remote access off/on.
 	} else {
 		writeJson(res, 401, { success: false, message: "Invalid or expired PIN" });
 	}

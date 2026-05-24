@@ -60,6 +60,7 @@ import {
 import { eventBus } from "./event-bus.js";
 import { startRemoteServer, stopRemoteServer } from "./remote-server.js";
 import { commandQueue } from "./command-queue.js";
+import { extractChatMessages } from "./extract-chat-messages.js";
 // Vendored pi-anthropic-messages bridge (see scripts/prebuild.mjs). Without
 // this loaded as an extension, Claude Pro/Max OAuth requests are
 // fingerprinted by Anthropic as a "third-party app" and rejected with a
@@ -89,6 +90,7 @@ interface PromptCommand {
 	type: "prompt";
 	id: string;
 	text: string;
+	_origin?: "remote";
 }
 
 interface AbortCommand {
@@ -410,104 +412,6 @@ function cleanStaleLocks(dir: string): void {
  */
 let remoteSessionFile: string | null = null;
 let remoteSessionFirstTs: number = 0;
-
-/**
- * Extract chat messages from the pi-agent AgentMessage format into our
- * ChatMessage format for persistence. Handles user, assistant, and
- * toolCall/toolResult pairs.
- */
-function extractChatMessages(
-	agentMessages: unknown[],
-): Array<Record<string, unknown>> {
-	const chatMessages: Array<Record<string, unknown>> = [];
-	const pendingToolCalls: Map<string, Array<Record<string, unknown>>> =
-		new Map();
-
-	for (const raw of agentMessages) {
-		const msg = raw as Record<string, unknown>;
-		const role = msg.role as string;
-		const content = msg.content as
-			| Array<Record<string, unknown>>
-			| undefined;
-		const timestamp = msg.timestamp as number | undefined;
-
-		if (role === "user") {
-			const text = content?.find((c) => c.type === "text")?.text as
-				| string
-				| undefined;
-			chatMessages.push({
-				role: "user",
-				content: text || "",
-				timestamp,
-			});
-		} else if (role === "assistant") {
-			const text = content?.find((c) => c.type === "text")?.text as
-				| string
-				| undefined;
-			const thinking = content?.find(
-				(c) => c.type === "thinking",
-			)?.thinking as string | undefined;
-			const toolCalls = content
-				?.filter(
-					(c) =>
-						c.type === "toolCall" || c.type === "tool_use",
-				)
-				.map((tc) => ({
-					id: tc.id || tc.toolCallId,
-					name: tc.name || tc.toolName,
-					args: tc.arguments || tc.input || {},
-					status: "pending" as const,
-					result: "",
-				}));
-			if (toolCalls && toolCalls.length > 0) {
-				pendingToolCalls.set(
-					String(timestamp ?? Math.random()),
-					toolCalls as Array<Record<string, unknown>>,
-				);
-			}
-			const entry: Record<string, unknown> = {
-				role: "assistant",
-				content: text || "",
-				timestamp,
-			};
-			if (thinking) entry.thinking = thinking;
-			if (toolCalls && toolCalls.length > 0) {
-				entry.toolCalls =
-					toolCalls as Array<Record<string, unknown>>;
-			}
-			if (msg.model) entry.model = msg.model;
-			if (msg.provider) entry.provider = msg.provider;
-			chatMessages.push(entry);
-		} else if (role === "toolResult" || role === "tool_result") {
-			// Match this result to its pending tool call
-			const callId = (msg.toolCallId || msg.tool_use_id) as
-				| string
-				| undefined;
-			const resultText = content
-				?.map((c) => (c.type === "text" ? c.text : ""))
-				.filter(Boolean)
-				.join("\n");
-			const isError = msg.isError === true;
-
-			if (callId) {
-				for (const [, calls] of pendingToolCalls) {
-					for (const tc of calls) {
-						if (tc.id === callId) {
-							tc.status = isError
-								? ("error" as const)
-								: ("completed" as const);
-							tc.result = resultText || "";
-							break;
-						}
-					}
-				}
-			}
-		}
-		// system messages: skip — they're display-only
-	}
-
-	return chatMessages;
-}
 
 // ---------------------------------------------------------------------------
 // Session persistence helpers
@@ -987,8 +891,7 @@ async function main() {
 						}
 					}, PROMPT_TIMEOUT_MS);
 
-					const isRemote =
-						(cmd as Record<string, unknown>)._origin === "remote";
+					const isRemote = cmd._origin === "remote";
 
 					try {
 						await session.prompt(cmd.text);

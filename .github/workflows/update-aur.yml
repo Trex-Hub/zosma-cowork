@@ -60,7 +60,10 @@ jobs:
 
       - name: Clone AUR repo
         run: |
-          ssh aur.archlinux.org clone zosma-cowork-bin
+          git clone "aur@aur.archlinux.org:zosma-cowork-bin.git"
+          cd zosma-cowork-bin
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
 
       - name: Update PKGBUILD
         working-directory: zosma-cowork-bin
@@ -107,8 +110,6 @@ jobs:
       - name: Commit and push to AUR
         working-directory: zosma-cowork-bin
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
           git add PKGBUILD .SRCINFO
           git commit -m "Update to ${{ steps.version.outputs.version }}"
-          ssh aur.archlinux.org push
+          git push

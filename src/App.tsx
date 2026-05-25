@@ -455,6 +455,9 @@ function App() {
 						<div
 							className="absolute inset-0 bg-black/50"
 							onClick={() => setMobileMenuOpen(false)}
+							onKeyDown={(e) => {
+								if (e.key === "Escape") setMobileMenuOpen(false);
+							}}
 						/>
 						{/* Sidebar panel */}
 						<div

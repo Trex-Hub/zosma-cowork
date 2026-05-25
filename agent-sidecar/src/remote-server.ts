@@ -108,8 +108,14 @@ async function handleRequest(
 		return;
 	}
 
-	// Static file serving (mobile web UI)
-	if (method === "GET" && !requestPath.startsWith("/api/")) {
+	// Mobile web UI at /m/* — loads the mobile companion app
+	if (method === "GET" && requestPath.startsWith("/m")) {
+		serveMobile(req, res);
+		return;
+	}
+
+	// Static file serving
+	if (method === "GET" && !requestPath.startsWith("/api/") && !requestPath.startsWith("/m")) {
 		serveStatic(req, res);
 		return;
 	}
@@ -365,6 +371,63 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
 		res.end(content);
 	} catch {
 		writeJson(res, 500, { error: "Internal error serving static file" });
+	}
+}
+
+/**
+ * Serve the mobile web app at /m/*.
+ *
+ * Routes /m and /m/* to dist/mobile.html with SPA fallback so the
+ * mobile React app&#39;s internal routing (e.g. /m/chat) works correctly.
+ */
+function serveMobile(req: http.IncomingMessage, res: http.ServerResponse): void {
+	const url = req.url || "/m/";
+
+	// Security: prevent directory traversal
+	if (url.includes("..")) {
+		writeJson(res, 403, { error: "Forbidden" });
+		return;
+	}
+
+	const distDir = getWebDistDir();
+
+	// Try exact path match first (e.g. /m/assets/foo.js -> dist/assets/foo.js)
+	// Strip /m prefix to serve from dist root
+	const relative = url.startsWith("/m/") ? url.slice(3) : "/index.html";
+	const fullPath = path.join(distDir, relative);
+
+	try {
+		if (fs.existsSync(fullPath)) {
+			const ext = relative.split(".").pop() || "bin";
+			const content = fs.readFileSync(fullPath);
+			res.writeHead(200, {
+				"Content-Type": getMimeType(ext),
+				...CORS_HEADERS,
+			});
+			res.end(content);
+			return;
+		}
+	} catch {
+		// Fall through to SPA fallback
+	}
+
+	// SPA fallback: serve mobile.html
+	const mobilePath = path.join(distDir, "mobile.html");
+	try {
+		if (fs.existsSync(mobilePath)) {
+			const content = fs.readFileSync(mobilePath);
+			res.writeHead(200, {
+				"Content-Type": getMimeType("html"),
+				...CORS_HEADERS,
+			});
+			res.end(content);
+		} else {
+			writeJson(res, 404, {
+				error: "Mobile UI not built. Run 'npm run build:frontend' first.",
+			});
+		}
+	} catch {
+		writeJson(res, 500, { error: "Internal error serving mobile app" });
 	}
 }
 

@@ -79,7 +79,7 @@ export function RemoteAccessPanel() {
 			const primaryIP = status.localIPs?.[0];
 			if (!primaryIP) return;
 
-			const url = `http://${primaryIP}:${port}`;
+			const url = `http://${primaryIP}:${port}/m/?pin=${status?.pin || ""}`;
 			try {
 				const dataUrl = await toDataURL(url, {
 					width: 256,
@@ -98,7 +98,7 @@ export function RemoteAccessPanel() {
 		return () => {
 			cancelled = true;
 		};
-	}, [status?.running, status?.port, status?.localIPs]);
+	}, [status?.running, status?.port, status?.localIPs, status?.pin]);
 
 	// ── Poll status while server is running ─────────────────────────
 

@@ -4,6 +4,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { VitePWA } from "vite-plugin-pwa";
 
+// Multi-page entries: desktop + mobile
+type InputMap = Record<string, string>;
+
+function resolveHtmlPage(name: string): string {
+	return path.resolve(__dirname, `${name}.html`);
+}
+
 export default defineConfig({
 	plugins: [
 		react(),
@@ -31,6 +38,14 @@ export default defineConfig({
 			},
 		}),
 	],
+	build: {
+		rollupOptions: {
+			input: {
+				main: resolveHtmlPage("index"),
+				mobile: resolveHtmlPage("mobile"),
+			} as InputMap,
+		},
+	},
 	test: {
 		environment: "jsdom",
 		globals: true,

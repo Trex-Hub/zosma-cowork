@@ -109,13 +109,19 @@ async function handleRequest(
 	}
 
 	// Mobile web UI at /m/* — loads the mobile companion app
-	if (method === "GET" && requestPath.startsWith("/m")) {
+	// Exact match: /m or /m/* (not /manifest.webmanifest, /main.js, etc.)
+	if (method === "GET" && (requestPath === "/m" || requestPath.startsWith("/m/"))) {
 		serveMobile(req, res);
 		return;
 	}
 
-	// Static file serving
-	if (method === "GET" && !requestPath.startsWith("/api/") && !requestPath.startsWith("/m")) {
+	// Static file serving (skip API and mobile paths)
+	if (
+		method === "GET" &&
+		!requestPath.startsWith("/api/") &&
+		requestPath !== "/m" &&
+		!requestPath.startsWith("/m/")
+	) {
 		serveStatic(req, res);
 		return;
 	}

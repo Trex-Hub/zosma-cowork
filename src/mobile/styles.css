@@ -3,6 +3,8 @@
    Glossy, modern look with glassmorphism and gradient backgrounds
    ========================================================================= */
 
+@import "tailwindcss";
+
 /* ---- Reset & base ---- */
 *,
 *::before,

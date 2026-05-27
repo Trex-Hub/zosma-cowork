@@ -67,48 +67,18 @@ The [pi ecosystem](https://github.com/earendil-works/pi-coding-agent) includes h
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph Tauri["Tauri v2 Desktop Shell (Rust)"]
-        direction TB
-        subgraph Frontend["React + Tailwind CSS v4"]
-            direction LR
-            A["Left Sidebar
-(Sessions)"] --- B["Center Workspace
-(Chat / Welcome)"] --- C["Right Panel
-(Progress)"]
-        end
-        IPC["Tauri IPC Commands
-get_models · send_prompt · abort · set_model
-save_auth · has_credentials · reload"]
-    end
+<img src="./assets/architecture.png" width="100%" alt="Zosma Cowork architecture diagram" />
 
-    subgraph Sidecar["Agent Sidecar (Node.js)"]
-        SDK["pi-mono SDK
-(@earendil-works/pi)"]
-        AS["AuthStorage
-API keys"]
-        MR["ModelRegistry
-model discovery"]
-        SM["SessionManager
-conversation"]
-        DRL["DefaultResourceLoader
-extensions, skills, prompts"]
-    end
+<details>
+<summary>Edit this diagram</summary>
 
-    LLM["LLM Providers
-OpenAI · Anthropic · Google · …"]
+The diagram is generated from <code>assets/architecture.mmd</code>. To update:
 
-    IPC -- "stdin / stdout JSON lines" --> Sidecar
-    SDK --> LLM
-
-    style Frontend fill:#f0f4ff,stroke:#4a90d9,color:#1a1a2e
-    style IPC fill:#e8f0fe,stroke:#4a90d9,color:#1a1a2e
-    style Tauri fill:#fafafa,stroke:#888,color:#1a1a2e
-    style Sidecar fill:#f6f2ff,stroke:#7c4dff,color:#1a1a2e
-    style SDK fill:#ede7f6,stroke:#7c4dff,color:#1a1a2e
-    style LLM fill:#e8f5e9,stroke:#4caf50,color:#1a1a2e
+```bash
+# Edit assets/architecture.mmd, then re-render:
+mmdc -i assets/architecture.mmd -o assets/architecture.png -b white -w 900 -H 700
 ```
+</details>
 
 ## Tech Stack
 

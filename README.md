@@ -26,9 +26,7 @@
 
 > A desktop agentic work harness built on [pi](https://github.com/earendil-works/pi-coding-agent), the minimal, language-agnostic coding agent harness. Streaming, thinking, tool calls, multi-turn sessions — all free, all open-source, all local.
 >
-> **Free yourself from expensive proprietary tools.** Zosma Cowork brings the full [pi extension ecosystem](https://github.com/earendil-works/pi-coding-agent) into a native desktop app. No subscriptions, no usage caps, no lock-in. Just bring your own API key or use local models.
->
-> **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
+> Built by [Zosma AI](https://zosma.ai).
 
 ## Gallery
 
@@ -44,9 +42,9 @@
 
 Zosma Cowork is a desktop application built on [pi](https://github.com/earendil-works/pi-coding-agent) — the minimal, language-agnostic coding agent harness. pi's philosophy of simplicity and composability carries directly into your desktop experience. Every pi extension works out of the box, with zero wrappers or adapters.
 
-### 🆓 Free, Not Freemium
+### 🆓 Free & Open Source
 
-No $20/month subscriptions. No feature gates. No usage limits. Zosma Cowork is **100% free and open-source** (MIT). Bring your own API key, use an existing subscription (Claude, ChatGPT, Copilot), or run local models — you control the costs, not a SaaS meter.
+Zosma Cowork is **100% free and open-source** (MIT). Bring your own API key, use an existing subscription (Claude, ChatGPT, Copilot), or run local models — you stay in control.
 
 ### 🧩 Full pi Extension Ecosystem
 
@@ -69,36 +67,47 @@ The [pi ecosystem](https://github.com/earendil-works/pi-coding-agent) includes h
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Tauri v2 Desktop Shell (Rust — thin relay)                  │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌────────────┐  │
-│  │  Left Sidebar   │  │  Center Workspace│  │Right Panel │  │
-│  │  (Sessions)     │  │  (Chat/Welcome)  │  │(Progress)  │  │
-│  └─────────────────┘  └──────────────────┘  └────────────┘  │
-│           ▲ React + Tailwind CSS v4                         │
-│           │                                                  │
-│  ┌────────┴─────────────────────────────────────────────┐   │
-│  │  Tauri IPC Commands                                   │   │
-│  │  get_models · send_prompt · abort · set_model         │   │
-│  │  save_auth · has_credentials · reload                  │   │
-│  └────────────┬───────────────────────────┬──────────────┘   │
-└───────────────┼───────────────────────────┼──────────────────┘
-                │  stdin/stdout JSON lines   │
-┌───────────────┼───────────────────────────┼──────────────────┐
-│  Agent Sidecar (Node.js)                  │                  │
-│  ┌──────────┴──────────────────────────┐ │                  │
-│  │  pi-mono SDK (@earendil-works/pi)   │ │                  │
-│  │  • AuthStorage — API keys           │ │                  │
-│  │  • ModelRegistry — model discovery  │ │                  │
-│  │  • SessionManager — conversation    │ │                  │
-│  │  • DefaultResourceLoader            │ │                  │
-│  │    → extensions, skills, prompts    │ │                  │
-│  └──────────┬──────────────────────────┘ │                  │
-│             │                              │                  │
-│       LLM Providers                        │                  │
-│  (OpenAI, Anthropic, Google, ...)          │                  │
-└─────────────────────────────────────────────┘                  │
+```mermaid
+flowchart TB
+    subgraph Tauri["Tauri v2 Desktop Shell (Rust)"]
+        direction TB
+        subgraph Frontend["React + Tailwind CSS v4"]
+            direction LR
+            A["Left Sidebar
+(Sessions)"] --- B["Center Workspace
+(Chat / Welcome)"] --- C["Right Panel
+(Progress)"]
+        end
+        IPC["Tauri IPC Commands
+get_models · send_prompt · abort · set_model
+save_auth · has_credentials · reload"]
+    end
+
+    subgraph Sidecar["Agent Sidecar (Node.js)"]
+        SDK["pi-mono SDK
+(@earendil-works/pi)"]
+        AS["AuthStorage
+API keys"]
+        MR["ModelRegistry
+model discovery"]
+        SM["SessionManager
+conversation"]
+        DRL["DefaultResourceLoader
+extensions, skills, prompts"]
+    end
+
+    LLM["LLM Providers
+OpenAI · Anthropic · Google · …"]
+
+    IPC -- "stdin / stdout JSON lines" --> Sidecar
+    SDK --> LLM
+
+    style Frontend fill:#f0f4ff,stroke:#4a90d9,color:#1a1a2e
+    style IPC fill:#e8f0fe,stroke:#4a90d9,color:#1a1a2e
+    style Tauri fill:#fafafa,stroke:#888,color:#1a1a2e
+    style Sidecar fill:#f6f2ff,stroke:#7c4dff,color:#1a1a2e
+    style SDK fill:#ede7f6,stroke:#7c4dff,color:#1a1a2e
+    style LLM fill:#e8f5e9,stroke:#4caf50,color:#1a1a2e
 ```
 
 ## Tech Stack
@@ -245,11 +254,7 @@ zosma-cowork/
 
 ## 🇮🇳 Made in India
 
-**Zosma Cowork** — proudly built **from India** by **ZOSMAAI SOLUTIONS PRIVATE LIMITED**.
-
-From India to the World 🌏 — with ❤️ from the team at [Zosma AI](https://zosma.ai).
-
-
+**Zosma Cowork** — built **from India** by **ZOSMAAI SOLUTIONS PRIVATE LIMITED**.
 
 ## License
 

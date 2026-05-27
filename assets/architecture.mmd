@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph Tauri["Tauri v2 Desktop Shell (Rust)"]
+        direction TB
+        subgraph Frontend["React + Tailwind CSS v4"]
+            direction LR
+            A["Left Sidebar<br/>(Sessions)"] --- B["Center Workspace<br/>(Chat / Welcome)"] --- C["Right Panel<br/>(Progress)"]
+        end
+        IPC["Tauri IPC Commands<br/>get_models · send_prompt · abort · set_model<br/>save_auth · has_credentials · reload"]
+    end
+
+    subgraph Sidecar["Agent Sidecar (Node.js)"]
+        SDK["pi-mono SDK<br/>(@earendil-works/pi)"]
+        AS["AuthStorage<br/>API keys"]
+        MR["ModelRegistry<br/>model discovery"]
+        SM["SessionManager<br/>conversation"]
+        DRL["DefaultResourceLoader<br/>extensions, skills, prompts"]
+    end
+
+    LLM["LLM Providers<br/>OpenAI · Anthropic · Google · …"]
+
+    IPC -- "stdin / stdout JSON lines" --> Sidecar
+    SDK --> LLM
+
+    style Frontend fill:#f0f4ff,stroke:#4a90d9,color:#1a1a2e
+    style IPC fill:#e8f0fe,stroke:#4a90d9,color:#1a1a2e
+    style Tauri fill:#fafafa,stroke:#888,color:#1a1a2e
+    style Sidecar fill:#f6f2ff,stroke:#7c4dff,color:#1a1a2e
+    style SDK fill:#ede7f6,stroke:#7c4dff,color:#1a1a2e
+    style LLM fill:#e8f5e9,stroke:#4caf50,color:#1a1a2e

@@ -1,4 +1,8 @@
+<div align="center">
+
 # Zosma Cowork 🇮🇳
+
+<img src="./assets/zosma-cowork-logo.png" alt="Zosma Cowork" width="200" />
 
 **English** | [中文](./README.zh.md) | [Español](./README.es.md) | [日本語](./README.ja.md) | [Deutsch](./README.de.md) | [Français](./README.fr.md) | [Português](./README.pt.md) | [Русский](./README.ru.md) | [한국어](./README.ko.md) | [हिंदी](./README.hi.md)
 
@@ -7,6 +11,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Made in India](https://img.shields.io/badge/Made_in_India-🇮🇳-FF9933?labelColor=138808)](https://zosma.ai)
 [![GitHub Repo Stars](https://img.shields.io/github/stars/zosmaai/zosma-cowork?style=social)](https://github.com/zosmaai/zosma-cowork/stargazers)
+
+</div>
 
 <br/>
 
@@ -26,9 +32,7 @@
 
 > A desktop agentic work harness built on [pi](https://github.com/earendil-works/pi-coding-agent), the minimal, language-agnostic coding agent harness. Streaming, thinking, tool calls, multi-turn sessions — all free, all open-source, all local.
 >
-> **Free yourself from expensive proprietary tools.** Zosma Cowork brings the full [pi extension ecosystem](https://github.com/earendil-works/pi-coding-agent) into a native desktop app. No subscriptions, no usage caps, no lock-in. Just bring your own API key or use local models.
->
-> **From India to the World 🌏 — Made with ❤️ by [Zosma AI](https://zosma.ai)**
+> Built by [Zosma AI](https://zosma.ai).
 
 ## Gallery
 
@@ -44,9 +48,9 @@
 
 Zosma Cowork is a desktop application built on [pi](https://github.com/earendil-works/pi-coding-agent) — the minimal, language-agnostic coding agent harness. pi's philosophy of simplicity and composability carries directly into your desktop experience. Every pi extension works out of the box, with zero wrappers or adapters.
 
-### 🆓 Free, Not Freemium
+### 🆓 Free & Open Source
 
-No $20/month subscriptions. No feature gates. No usage limits. Zosma Cowork is **100% free and open-source** (MIT). Bring your own API key, use an existing subscription (Claude, ChatGPT, Copilot), or run local models — you control the costs, not a SaaS meter.
+Zosma Cowork is **100% free and open-source** (MIT). Bring your own API key, use an existing subscription (Claude, ChatGPT, Copilot), or run local models — you stay in control.
 
 ### 🧩 Full pi Extension Ecosystem
 
@@ -69,37 +73,18 @@ The [pi ecosystem](https://github.com/earendil-works/pi-coding-agent) includes h
 
 ## Architecture
 
+<img src="./assets/architecture.png" width="100%" alt="Zosma Cowork architecture diagram" />
+
+<details>
+<summary>Edit this diagram</summary>
+
+The diagram is generated from <code>assets/architecture.mmd</code>. To update:
+
+```bash
+# Edit assets/architecture.mmd, then re-render:
+mmdc -i assets/architecture.mmd -o assets/architecture.png -b white -w 900 -H 700
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  Tauri v2 Desktop Shell (Rust — thin relay)                  │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌────────────┐  │
-│  │  Left Sidebar   │  │  Center Workspace│  │Right Panel │  │
-│  │  (Sessions)     │  │  (Chat/Welcome)  │  │(Progress)  │  │
-│  └─────────────────┘  └──────────────────┘  └────────────┘  │
-│           ▲ React + Tailwind CSS v4                         │
-│           │                                                  │
-│  ┌────────┴─────────────────────────────────────────────┐   │
-│  │  Tauri IPC Commands                                   │   │
-│  │  get_models · send_prompt · abort · set_model         │   │
-│  │  save_auth · has_credentials · reload                  │   │
-│  └────────────┬───────────────────────────┬──────────────┘   │
-└───────────────┼───────────────────────────┼──────────────────┘
-                │  stdin/stdout JSON lines   │
-┌───────────────┼───────────────────────────┼──────────────────┐
-│  Agent Sidecar (Node.js)                  │                  │
-│  ┌──────────┴──────────────────────────┐ │                  │
-│  │  pi-mono SDK (@earendil-works/pi)   │ │                  │
-│  │  • AuthStorage — API keys           │ │                  │
-│  │  • ModelRegistry — model discovery  │ │                  │
-│  │  • SessionManager — conversation    │ │                  │
-│  │  • DefaultResourceLoader            │ │                  │
-│  │    → extensions, skills, prompts    │ │                  │
-│  └──────────┬──────────────────────────┘ │                  │
-│             │                              │                  │
-│       LLM Providers                        │                  │
-│  (OpenAI, Anthropic, Google, ...)          │                  │
-└─────────────────────────────────────────────┘                  │
-```
+</details>
 
 ## Tech Stack
 
@@ -245,11 +230,7 @@ zosma-cowork/
 
 ## 🇮🇳 Made in India
 
-**Zosma Cowork** — proudly built **from India** by **ZOSMAAI SOLUTIONS PRIVATE LIMITED**.
-
-From India to the World 🌏 — with ❤️ from the team at [Zosma AI](https://zosma.ai).
-
-
+**Zosma Cowork** — built **from India** by **ZOSMAAI SOLUTIONS PRIVATE LIMITED**.
 
 ## License
 

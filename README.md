@@ -143,6 +143,23 @@ cargo fmt --all --check
 cargo clippy --workspace -- -D warnings
 ```
 
+### Staging builds
+
+Every merge to `main` produces unsigned cross-platform installers via the
+`Staging Build` workflow (`.github/workflows/staging-build.yml`). The bundles
+are attached as workflow artifacts (14-day retention) and a notification
+email with auth-free [nightly.link](https://nightly.link) download URLs is
+sent to the addresses configured in the `STAGING_NOTIFY_EMAILS` repo
+Variable.
+
+This flow **does not** create a GitHub Release, tag a commit, or publish to
+AUR / winget / Homebrew — those side-effects remain gated on the
+tag-triggered `release.yml`. See issue
+[#133](https://github.com/zosmaai/zosma-cowork/issues/133) for the design.
+
+To run a staging build on demand, trigger `Staging Build` from the Actions
+tab via *Run workflow*.
+
 ## Config & Data
 
 | What | Location | Notes |

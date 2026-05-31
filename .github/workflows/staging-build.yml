@@ -203,10 +203,14 @@ jobs:
           set -euo pipefail
           SHA7="${SHA:0:7}"
 
-          # First line of the commit message becomes the embed title row.
-          # Squash-merged PRs end the subject with `(#N)`, which renders
-          # nicely in Discord and links back to the PR automatically.
+          # First line of the commit message becomes the embed description.
+          # Squash-merged PRs end the subject with `(#N)`. Discord does NOT
+          # auto-linkify GitHub-style `#N` refs the way GitHub itself does,
+          # so we rewrite them to explicit markdown links — GitHub's web
+          # routing 302s /pull/N → /issues/N when N is an issue, so always
+          # linking to /pull/N is safe regardless of ref type.
           SUBJECT_LINE="$(printf '%s\n' "$COMMIT_MSG" | head -n1)"
+          SUBJECT_LINKED="$(printf '%s' "$SUBJECT_LINE" | sed -E "s|#([0-9]+)|[#\1](https://github.com/$REPO/pull/\1)|g")"
 
           # Discord embed colour: green / yellow / red on success / partial / failure.
           # Decimal (Discord's embed.color is an int, not a hex string).
@@ -231,7 +235,7 @@ jobs:
             --arg title "Zosma Cowork staging — $SHA7" \
             --arg sha7 "$SHA7" \
             --arg url "$RUN_URL" \
-            --arg subject "$SUBJECT_LINE" \
+            --arg subject "$SUBJECT_LINKED" \
             --arg actor "$ACTOR" \
             --arg result "$BUILD_RESULT" \
             --arg commit_url "$COMMIT_URL" \

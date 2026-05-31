@@ -313,7 +313,11 @@ async fn spawn_sidecar(
         #[cfg(target_os = "windows")]
         let tsx_bin = {
             let cmd = bin_dir.join("tsx.cmd");
-            if cmd.exists() { cmd } else { bin_dir.join("tsx") }
+            if cmd.exists() {
+                cmd
+            } else {
+                bin_dir.join("tsx")
+            }
         };
         #[cfg(not(target_os = "windows"))]
         let tsx_bin = bin_dir.join("tsx");
@@ -324,9 +328,13 @@ async fn spawn_sidecar(
         } else {
             // npx is also a .cmd on Windows — let cmd.exe resolve it via PATH.
             #[cfg(target_os = "windows")]
-            { run_cmd = "npx.cmd".to_string(); }
+            {
+                run_cmd = "npx.cmd".to_string();
+            }
             #[cfg(not(target_os = "windows"))]
-            { run_cmd = "npx".to_string(); }
+            {
+                run_cmd = "npx".to_string();
+            }
             run_args = vec!["tsx".to_string(), p_str];
             log::info!("Sidecar: {} tsx {}", run_cmd, run_args[1]);
         }

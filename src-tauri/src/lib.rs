@@ -410,9 +410,7 @@ async fn spawn_sidecar(
     {
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    log::info!(
-        "Sidecar: spawning cmd={run_cmd:?} args={run_args:?} zosmaDir={zm}"
-    );
+    log::info!("Sidecar: spawning cmd={run_cmd:?} args={run_args:?} zosmaDir={zm}");
     let mut c = c.spawn().map_err(|e| format!("spawn: {e}"))?;
     let o = c.stdout.take().ok_or("no stdout")?;
     let mut i = c.stdin.take().ok_or("no stdin")?;
@@ -1536,9 +1534,7 @@ pub fn run() {
                                     "Sidecar pid={pid:?} EXITED: status={status:?} code={:?}",
                                     status.code()
                                 ),
-                                Err(e) => log::error!(
-                                    "Sidecar pid={pid:?} wait error: {e}"
-                                ),
+                                Err(e) => log::error!("Sidecar pid={pid:?} wait error: {e}"),
                             }
                         });
                         read_stdout(o, pp, pr, rd, h.clone()).await;

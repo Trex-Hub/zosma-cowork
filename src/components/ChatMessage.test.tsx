@@ -146,4 +146,34 @@ describe("ChatMessage model label", () => {
 		render(<ChatMessageItem message={msg} />);
 		expect(screen.getByText("anthropic/claude-sonnet-4")).toBeInTheDocument();
 	});
+
+	it("resolves the name for the right provider when ids collide", () => {
+		// Same id under two providers — must pick the message's actual provider.
+		const collide = [
+			{
+				id: "glm-4.6",
+				name: "GLM 4.6 (zai)",
+				provider: "zai",
+				reasoning: false,
+				contextWindow: 0,
+				maxTokens: 0,
+			},
+			{
+				id: "glm-4.6",
+				name: "GLM 4.6 (opencode-go)",
+				provider: "opencode-go",
+				reasoning: false,
+				contextWindow: 0,
+				maxTokens: 0,
+			},
+		];
+		render(
+			<ChatMessageItem
+				message={{ ...msg, provider: "opencode-go", model: "glm-4.6" }}
+				models={collide}
+			/>,
+		);
+		expect(screen.getByText("GLM 4.6 (opencode-go)")).toBeInTheDocument();
+		expect(screen.queryByText("GLM 4.6 (zai)")).not.toBeInTheDocument();
+	});
 });

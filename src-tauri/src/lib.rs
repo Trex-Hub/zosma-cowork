@@ -479,7 +479,15 @@ async fn read_stdout(
             }
             "done" => {
                 if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
-                    pp.lock().await.remove(id);
+                    // Forward a terminal `done` to the prompt channel BEFORE
+                    // dropping it. The UI ends a turn on `agent_end` OR `done`;
+                    // without this forward the only completion signal is
+                    // `agent_end`, so any turn that doesn't emit one (incl. the
+                    // sidecar's prompt-timeout abort, which only sends `done`)
+                    // leaves the UI stuck in "thinking" forever.
+                    if let Some(p) = pp.lock().await.remove(id) {
+                        let _ = p.channel.send(serde_json::json!({"type":"done"}));
+                    }
                 }
             }
             "result" => {

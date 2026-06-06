@@ -22,7 +22,9 @@ interface ChatMessageProps {
  * back to the raw `provider/id` when the model isn't in the catalog.
  */
 function modelLabel(message: ChatMessageType, models?: ModelInfo[]): string {
-	const match = models?.find((m) => m.id === message.model);
+	// Match on provider+id: ids are not unique across providers, so matching by
+	// id alone could show the wrong provider's display name.
+	const match = models?.find((m) => m.id === message.model && m.provider === message.provider);
 	if (match) return match.name;
 	return message.provider ? `${message.provider}/${message.model}` : (message.model ?? "");
 }

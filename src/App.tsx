@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePiStream } from "@/hooks/usePiStream";
 import { useProviders } from "@/hooks/useProviders";
 import { useTelemetry } from "@/hooks/useTelemetry";
+import { findModel, modelKey } from "@/lib/model-key";
 import { trackEvent } from "@/lib/telemetry";
 import type { ChatMessage } from "@/types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -186,12 +187,16 @@ function App() {
 				}
 
 				// 1. Honour the user's explicitly-saved model and push it to the
-				//    engine so it actually takes effect.
+				//    engine so it actually takes effect. Match on provider+id: ids
+				//    are NOT unique across providers, so matching by id alone could
+				//    bind the wrong provider (e.g. zai/glm vs opencode-go/glm).
 				if (data.defaultModel) {
-					const match = models.find((m) => m.id === data.defaultModel);
+					const match =
+						models.find((m) => m.id === data.defaultModel && m.provider === data.defaultProvider) ??
+						models.find((m) => m.id === data.defaultModel);
 					if (match) {
-						console.log("[settings] restoring model:", match.id);
-						setActiveModelId(match.id);
+						console.log("[settings] restoring model:", match.provider, match.id);
+						setActiveModelId(modelKey(match.provider, match.id));
 						invoke("set_active_model", {
 							provider: match.provider,
 							model: match.id,
@@ -205,11 +210,13 @@ function App() {
 				//    per-message usage label). No push needed — it's already active.
 				try {
 					const engine = (await invoke("get_active_model")) as {
+						provider?: string;
 						id?: string;
 					} | null;
-					if (engine?.id && models.some((m) => m.id === engine.id)) {
-						console.log("[settings] mirroring engine model:", engine.id);
-						setActiveModelId(engine.id);
+					const key = engine?.id ? modelKey(engine.provider, engine.id) : undefined;
+					if (key && findModel(models, key)) {
+						console.log("[settings] mirroring engine model:", key);
+						setActiveModelId(key);
 						return;
 					}
 				} catch (err) {
@@ -219,14 +226,14 @@ function App() {
 				// 3. Last resort: pick the first model AND push it so the UI and
 				//    engine still agree even if the mirror query failed.
 				const fallback = models[0];
-				setActiveModelId(fallback.id);
+				setActiveModelId(modelKey(fallback.provider, fallback.id));
 				invoke("set_active_model", {
 					provider: fallback.provider,
 					model: fallback.id,
 				}).catch(() => {});
 			})();
 		} else if (models.length > 0 && !activeModelId) {
-			setActiveModelId(models[0].id);
+			setActiveModelId(modelKey(models[0].provider, models[0].id));
 		}
 	}, [models, activeModelId]);
 
@@ -386,7 +393,7 @@ function App() {
 			}
 
 			// Track message with provider/model info
-			const activeModel = models.find((m) => m.id === activeModelId);
+			const activeModel = findModel(models, activeModelId);
 			trackEvent("message_sent", {
 				provider: activeModel?.provider?.split("-")[0] ?? "unknown",
 				model: activeModel?.id ?? "unknown",
@@ -400,20 +407,19 @@ function App() {
 		[activeSessionFile, startStream, models, activeModelId],
 	);
 
-	const handleModelSelect = async (_provider: string, modelId: string) => {
-		setActiveModelId(modelId);
+	const handleModelSelect = async (provider: string, modelId: string) => {
+		setActiveModelId(modelKey(provider, modelId));
 		try {
-			const model = models.find((m) => m.id === modelId);
-			console.log("[settings] saving model:", modelId);
+			console.log("[settings] saving model:", provider, modelId);
 			await invoke("save_settings", {
 				settings: {
 					defaultModel: modelId,
-					defaultProvider: model?.provider || _provider,
+					defaultProvider: provider,
 				},
 			});
 			// Actually set the model on the sidecar so it takes effect immediately
 			await invoke("set_active_model", {
-				provider: model?.provider || _provider,
+				provider,
 				model: modelId,
 			});
 		} catch (err) {
@@ -649,12 +655,7 @@ function App() {
 					<MobileTopBar
 						title="Zosma Cowork"
 						subtitle={
-							activeModelId
-								? (() => {
-										const m = models.find((mo) => mo.id === activeModelId);
-										return m?.name || activeModelId;
-									})()
-								: undefined
+							activeModelId ? (findModel(models, activeModelId)?.name ?? activeModelId) : undefined
 						}
 						open={mobileMenuOpen}
 						onToggle={() => setMobileMenuOpen((prev) => !prev)}

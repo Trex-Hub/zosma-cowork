@@ -747,10 +747,7 @@ async fn delete_session(session_file: String, s: State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-async fn new_session(
-    cwd: Option<String>,
-    s: State<'_, AppState>,
-) -> Result<Value, String> {
+async fn new_session(cwd: Option<String>, s: State<'_, AppState>) -> Result<Value, String> {
     // `cwd` is the workspace folder the user picked (via the native folder
     // picker). Forwarded to the sidecar, which rebinds the agent's file/bash
     // tools and project-local resource discovery to it. Omitted => the sidecar

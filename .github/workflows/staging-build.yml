@@ -7,10 +7,11 @@ name: Staging Build
 #   - When a PR is labeled `staging` (or manually via `workflow_dispatch`),
 #     bundle the desktop app for macOS-universal, Linux-x64, Windows-x64.
 #   - Upload the installers as workflow artifacts (14 day retention).
-#   - Post a Discord message to an internal channel with auth-free download
-#     links served via nightly.link (one webhook secret — single source of
-#     truth, no per-recipient management).
-#   - Drop a sticky comment on the PR linking to the artifacts.
+#   - Hand off to `staging-notify.yml` (a `workflow_run` workflow) which
+#     posts a Discord message with auth-free nightly.link download links
+#     and drops a sticky comment on the PR. That half runs in the trusted
+#     base-repo context, so it works for FORK PRs too, without ever
+#     exposing the webhook secret to fork code.
 #
 # WHY label-triggered, not push-to-main triggered:
 #   - Reviewers want to bash on the artifact BEFORE merging, not after. A
@@ -31,11 +32,16 @@ name: Staging Build
 #     on every label add isn't worth it. Internal testers dismiss the OS
 #     warnings (the Discord embed and PR comment include the macOS `xattr`
 #     step and the Windows "Run anyway" step).
-#   - Does NOT run on fork PRs. `secrets.DISCORD_STAGING_WEBHOOK` is not
-#     exposed to fork-PR workflows, and a `pull_request` trigger from a
-#     fork can't write a PR comment. If you ever need fork-PR staging
-#     builds, switch the trigger to `pull_request_target` and add a
-#     fork-author allowlist — be aware of the security implications first.
+#   - Does NOT post to Discord / comment on the PR itself, and does NOT
+#     read any repo secret. Fork PRs run WITHOUT secrets and with a
+#     read-only token, so notification is split into a separate
+#     `workflow_run`-triggered workflow (`staging-notify.yml`) that runs in
+#     the base-repo context with secret + write access AFTER this build
+#     completes. This job only ever compiles untrusted PR code and uploads
+#     artifacts + a metadata file — it never sees `DISCORD_STAGING_WEBHOOK`,
+#     so a malicious fork cannot exfiltrate it. This is deliberately
+#     preferred over `pull_request_target`, which WOULD run fork build code
+#     with secrets in scope. See staging-notify.yml for the notify half.
 #
 # Tracks zosmaai/zosma-cowork#133.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,9 +63,7 @@ on:
         type: string
 
 permissions:
-  contents: read
-  actions: read
-  pull-requests: write   # for the sticky PR comment from the notify job
+  contents: read   # build only checks out + compiles untrusted code; no secrets, no PR writes
 
 concurrency:
   # One staging build in flight per PR (or per dispatch ref). If a new
@@ -218,9 +222,10 @@ jobs:
         with:
           # Including the short SHA in the name lets testers tell at a
           # glance which commit they're installing. nightly.link's URL
-          # needs the exact artifact name, so the notify job below
-          # constructs the same string. For PR builds this is the PR
-          # head SHA (matches the checkout ref above); for
+          # needs the exact artifact name, so the notify workflow
+          # (staging-notify.yml) reconstructs the same string from the
+          # `artifact_sha` saved by the save-meta job below. For PR builds
+          # this is the PR head SHA (matches the checkout ref above); for
           # workflow_dispatch it falls back to `github.sha`.
           name: zosma-cowork-staging-${{ matrix.name }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: staging-out/*
@@ -230,213 +235,71 @@ jobs:
           # budget at ~150 MB per OS per run.
           retention-days: 14
 
-  notify:
-    name: Notify (Discord + PR comment)
-    needs: build
-    # Fire on success OR failure — we want partial-failure builds (one
-    # OS broken, others fine) to still ping the channel. But skip
-    # cancelled runs: when `cancel-in-progress: true` aborts an
-    # in-flight build because a newer commit landed, NO artifacts get
-    # uploaded, and posting an embed whose nightly.link URLs all 404
-    # just creates noise. The user is going to see the next run's
-    # notification a couple of minutes later anyway. `skipped` is also
-    # dropped — it would only happen if the matrix itself was filtered
-    # out, in which case there's nothing to notify about.
-    if: always() && (needs.build.result == 'success' || needs.build.result == 'failure')
+
+  # Persist the per-PR context the notify workflow needs. We CANNOT post to
+  # Discord or comment on the PR from here: on a fork PR this run has no
+  # secrets and a read-only token. Instead we stash the metadata as an
+  # artifact; `staging-notify.yml` (triggered by `workflow_run`) runs in the
+  # trusted base-repo context afterwards, downloads this, and does the
+  # notifying with secret + write access.
+  #
+  # Runs independently of `build` (no `needs:`) and on the SAME gate, so the
+  # metadata is captured even when the build fails — the notify workflow keys
+  # off the build run's conclusion to colour the embed red. A cancelled run
+  # (superseded by a newer commit via cancel-in-progress) takes this job down
+  # with it, so no stale notification fires.
+  save-meta:
+    name: Save PR metadata for notify
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'staging') ||
+      (github.event_name == 'pull_request' && github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'staging'))
     runs-on: ubuntu-latest
     steps:
-      - name: Check Discord webhook configured
-        id: cfg
+      - name: Write metadata
         env:
-          WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
-        run: |
-          if [ -z "$WEBHOOK" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::DISCORD_STAGING_WEBHOOK secret not set — skipping Discord notification. Create a webhook on a Discord channel (Channel settings → Integrations → Webhooks → New) and add the URL as a repo secret."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Post to Discord
-        if: steps.cfg.outputs.configured == 'true'
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_STAGING_WEBHOOK }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          # For PR builds, `github.sha` is the merge commit. We want the
-          # PR head SHA so the embed matches the artifact name and the
-          # user's local git log. Fall back to github.sha for
-          # workflow_dispatch.
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          # For pull_request use the PR title; for push (not currently
-          # wired but kept for symmetry) use the head commit message;
-          # for workflow_dispatch fall back to a generic label.
-          COMMIT_MSG: ${{ github.event.pull_request.title || github.event.head_commit.message || format('Manual staging build @ {0}', github.ref) }}
+          # The exact SHA baked into the artifact names above — the notify
+          # workflow reconstructs the nightly.link URLs from this, removing
+          # any guesswork about merge-commit vs head-commit SHAs.
+          ARTIFACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
           ACTOR: ${{ github.actor }}
-          BUILD_RESULT: ${{ needs.build.result }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.event.inputs.ref }}
         run: |
           set -euo pipefail
-          SHA7="${SHA:0:7}"
-
-          # First line of the commit message / PR title becomes the embed
-          # description. Discord does NOT auto-linkify GitHub-style `#N`
-          # refs the way GitHub itself does, so we rewrite them to
-          # explicit markdown links — GitHub's web routing 302s
-          # /pull/N → /issues/N when N is an issue, so always linking to
-          # /pull/N is safe regardless of ref type.
-          SUBJECT_LINE="$(printf '%s\n' "$COMMIT_MSG" | head -n1)"
-          SUBJECT_LINKED="$(printf '%s' "$SUBJECT_LINE" | sed -E "s|#([0-9]+)|[#\1](https://github.com/$REPO/pull/\1)|g")"
-
-          # Discord embed colour: green / yellow / red on success / partial / failure.
-          # Decimal (Discord's embed.color is an int, not a hex string).
-          case "$BUILD_RESULT" in
-            success)   COLOR=3066993  ;;  # #2ECC71
-            failure)   COLOR=15158332 ;;  # #E74C3C
-            cancelled) COLOR=10070709 ;;  # #99AAB5
-            *)         COLOR=15844367 ;;  # #F1C40F  (skipped / mixed)
-          esac
-
-          MAC_URL="https://nightly.link/$REPO/actions/runs/$RUN_ID/zosma-cowork-staging-macOS-universal-$SHA.zip"
-          LIN_URL="https://nightly.link/$REPO/actions/runs/$RUN_ID/zosma-cowork-staging-Linux-x64-$SHA.zip"
-          WIN_URL="https://nightly.link/$REPO/actions/runs/$RUN_ID/zosma-cowork-staging-Windows-x64-$SHA.zip"
-          COMMIT_URL="https://github.com/$REPO/commit/$SHA"
-          RUN_URL="https://github.com/$REPO/actions/runs/$RUN_ID"
-
-          # For PR builds, add an explicit PR link field. Manual dispatch
-          # builds omit it (jq's `if/else/end` handles the empty case).
-          PR_NUM_DISPLAY=""
-          if [ -n "${PR_NUMBER:-}" ]; then
-            PR_NUM_DISPLAY="[#${PR_NUMBER}](${PR_URL})"
+          mkdir -p meta
+          # Subject line of the embed: PR title for PRs, a generic label for
+          # manual dispatch builds (which have no PR).
+          if [ -n "${PR_TITLE:-}" ]; then
+            SUBJECT="$PR_TITLE"
+          else
+            SUBJECT="Manual staging build @ ${DISPATCH_REF:-default branch}"
           fi
-
-          # Build the JSON payload via `jq` so multi-line bodies + special
-          # characters in commit messages (backticks, quotes, backslashes)
-          # don't break the request. `jq -n` builds a fresh object;
-          # `--arg` passes strings safely; `--argjson` passes numerics.
-          PAYLOAD=$(jq -n \
-            --arg title "Zosma Cowork staging — $SHA7" \
-            --arg sha7 "$SHA7" \
-            --arg url "$RUN_URL" \
-            --arg subject "$SUBJECT_LINKED" \
-            --arg actor "$ACTOR" \
-            --arg result "$BUILD_RESULT" \
-            --arg commit_url "$COMMIT_URL" \
-            --arg pr "$PR_NUM_DISPLAY" \
-            --arg mac "$MAC_URL" \
-            --arg lin "$LIN_URL" \
-            --arg win "$WIN_URL" \
-            --argjson color $COLOR \
+          jq -n \
+            --arg artifact_sha "$ARTIFACT_SHA" \
+            --arg pr_number    "${PR_NUMBER:-}" \
+            --arg pr_url       "${PR_URL:-}" \
+            --arg subject      "$SUBJECT" \
+            --arg actor        "$ACTOR" \
+            --arg event_name   "$EVENT_NAME" \
             '{
-              embeds: [{
-                title: $title,
-                url: $url,
-                description: $subject,
-                color: $color,
-                fields: ([
-                  { name: "Status",  value: $result, inline: true },
-                  { name: "By",      value: $actor,  inline: true },
-                  { name: "Commit",  value: ("[" + $sha7 + "](" + $commit_url + ")"), inline: true }
-                ] + (if $pr == "" then [] else [{ name: "PR", value: $pr, inline: true }] end) + [
-                  { name: "Downloads",
-                    value: ("• [macOS (universal)](" + $mac + ")\n• [Linux x64](" + $lin + ")\n• [Windows x64](" + $win + ")"),
-                    inline: false },
-                  { name: "Notes",
-                    value: "Unsigned build. macOS: `xattr -dr com.apple.quarantine \"/Applications/Zosma Cowork.app\"`. Windows SmartScreen: *More info → Run anyway*. Internal use only — do not redistribute.",
-                    inline: false }
-                ]),
-                footer: { text: "Staging build • 14d retention • nightly.link mirror" },
-                timestamp: now | todate
-              }]
-            }')
+              artifact_sha: $artifact_sha,
+              pr_number:    $pr_number,
+              pr_url:       $pr_url,
+              subject:      $subject,
+              actor:        $actor,
+              event_name:   $event_name
+            }' > meta/staging-meta.json
+          echo "── staging-meta.json ──"
+          cat meta/staging-meta.json
 
-          # Discord returns 204 No Content on success, 4xx with a JSON
-          # error body on failure. `--fail-with-body` exits non-zero AND
-          # prints the body so a bad embed (e.g. exceeded 6000-char
-          # limit) shows up in the job log.
-          curl --fail-with-body -sS \
-            -H 'Content-Type: application/json' \
-            -X POST \
-            -d "$PAYLOAD" \
-            "$WEBHOOK"
-
-      # Post (or update) a sticky comment on the PR itself so reviewers
-      # don't have to leave GitHub to find the staging build. Skipped for
-      # workflow_dispatch (no PR context).
-      #
-      # ALSO skipped for fork PRs: GitHub forcibly downgrades GITHUB_TOKEN
-      # to read-only for `pull_request` events from a fork, IGNORING the
-      # `permissions: pull-requests: write` block above. The issues
-      # comment API then 403s ("Resource not accessible by integration").
-      # The `head.repo.full_name == github.repository` guard limits this
-      # step to same-repo branch PRs, where the token is writable. Fork
-      # PRs still get the Discord embed's download links instead. (The
-      # Discord step likewise self-skips on forks — its webhook secret is
-      # not exposed to fork-PR workflows.)
-      - name: Sticky comment on PR
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.number &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
-        env:
-          BUILD_RESULT: ${{ needs.build.result }}
-          SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_ID: ${{ github.run_id }}
+      - name: Upload metadata artifact
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const { BUILD_RESULT, SHA, RUN_ID } = process.env;
-            const sha7 = SHA.substring(0, 7);
-            const repo = `${context.repo.owner}/${context.repo.repo}`;
-            const runUrl = `https://github.com/${repo}/actions/runs/${RUN_ID}`;
-            const mac = `https://nightly.link/${repo}/actions/runs/${RUN_ID}/zosma-cowork-staging-macOS-universal-${SHA}.zip`;
-            const lin = `https://nightly.link/${repo}/actions/runs/${RUN_ID}/zosma-cowork-staging-Linux-x64-${SHA}.zip`;
-            const win = `https://nightly.link/${repo}/actions/runs/${RUN_ID}/zosma-cowork-staging-Windows-x64-${SHA}.zip`;
-
-            // A hidden HTML marker lets us find-and-update the previous
-            // sticky comment on subsequent runs of the same PR, instead
-            // of stacking new comments forever.
-            const marker = "<!-- zosma-staging-build-sticky -->";
-
-            const statusEmoji = BUILD_RESULT === "success" ? "✅"
-                              : BUILD_RESULT === "failure" ? "⚠️"
-                              : "ℹ️";
-
-            const body = [
-              marker,
-              `### ${statusEmoji} Staging build — \`${sha7}\``,
-              ``,
-              `Status: **${BUILD_RESULT}** · [Workflow run](${runUrl})`,
-              ``,
-              `**Downloads** (auth-free, via nightly.link · 14d retention):`,
-              `- 🍎 [macOS (universal)](${mac})`,
-              `- 🐧 [Linux x64](${lin})`,
-              `- 🪟 [Windows x64](${win})`,
-              ``,
-              `> Unsigned. macOS: \`xattr -dr com.apple.quarantine "/Applications/Zosma Cowork.app"\`. Windows SmartScreen: *More info → Run anyway*. Internal use only — do not redistribute.`,
-            ].join("\n");
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              per_page: 100,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body,
-              });
-            }
+          name: staging-meta
+          path: meta/staging-meta.json
+          if-no-files-found: error
+          retention-days: 14

@@ -18,6 +18,7 @@ import { trackEvent } from "@/lib/telemetry";
 import type { ChatMessage } from "@/types";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SessionEntry {
@@ -25,6 +26,8 @@ interface SessionEntry {
 	title: string;
 	model?: string;
 	provider?: string;
+	/** Workspace folder this session ran in (for folder-grouped sidebar). */
+	cwd?: string;
 	messageCount: number;
 	createdAt: number;
 	lastActivity: number;
@@ -75,6 +78,11 @@ function App() {
 	// Session management
 	const [sessionEntries, setSessionEntries] = useState<SessionEntry[]>([]);
 	const [activeSessionFile, setActiveSessionFile] = useState<string | null>(null);
+	// The agent's current workspace folder (where file/bash tools read & write).
+	const [workspaceCwd, setWorkspaceCwd] = useState<string | null>(null);
+	// The user's home dir (sidecar's default workspace) — used to label the
+	// "Home" folder group in the sidebar.
+	const [homeDir, setHomeDir] = useState<string | null>(null);
 	/** Messages loaded from a saved session file — merged with stream messages */
 	const [loadedSessionMessages, setLoadedSessionMessages] = useState<ChatMessage[] | null>(null);
 	const [loadingSession, setLoadingSession] = useState(false);
@@ -347,15 +355,20 @@ function App() {
 				messages: merged,
 				model: merged.find((m) => m.model)?.model || null,
 				provider: merged.find((m) => m.provider)?.provider || null,
-			}).catch((err) => console.error("Failed to save session:", err));
+			})
+				// Reconcile the sidebar with disk truth (so the cwd stamped into the
+				// header drives folder grouping and nothing is "not listed").
+				.then(() => loadSessionList())
+				.catch((err) => console.error("Failed to save session:", err));
 
-			// Update sidebar entry
+			// Optimistic sidebar entry (folder = active workspace).
 			setSessionEntries((prev) => {
 				const filtered = prev.filter((s) => s.file !== sid);
 				return [
 					{
 						file: sid,
 						title,
+						cwd: workspaceCwd ?? undefined,
 						messageCount: merged.length,
 						createdAt: prev.find((s) => s.file === sid)?.createdAt || Date.now(),
 						lastActivity: Date.now(),
@@ -383,6 +396,7 @@ function App() {
 					{
 						file: sessionFile,
 						title,
+						cwd: workspaceCwd ?? undefined,
 						messageCount: 1,
 						createdAt: Date.now(),
 						lastActivity: Date.now(),
@@ -404,7 +418,7 @@ function App() {
 			const finalText = personaRef.current ? `${personaRef.current}\n\n---\n\n${text}` : text;
 			startStream(finalText);
 		},
-		[activeSessionFile, startStream, models, activeModelId],
+		[activeSessionFile, startStream, models, activeModelId, workspaceCwd],
 	);
 
 	const handleModelSelect = async (provider: string, modelId: string) => {
@@ -448,16 +462,71 @@ function App() {
 		setShowKeyEntry(false);
 	}, []);
 
-	const handleNewSession = useCallback(async () => {
+	// Create a fresh session bound to `cwd` (a chosen folder). The sidecar
+	// returns the resolved workspace (it may fall back to home if the path was
+	// invalid) — we reflect that. Creating a new session never mutates the
+	// previously-active session's folder; each session owns its own cwd.
+	const handleNewSession = useCallback(
+		async (cwd?: string) => {
+			let resolvedCwd: string | undefined;
+			try {
+				const res = await invoke<{ cwd?: string }>("new_session", cwd ? { cwd } : {});
+				if (res && typeof res.cwd === "string") {
+					resolvedCwd = res.cwd;
+					setWorkspaceCwd(res.cwd);
+				}
+			} catch {
+				// ignore
+			}
+			dispatch({ type: "RESET" });
+			setLoadedSessionMessages(null);
+			setActiveSessionFile(`session-${Date.now()}.jsonl`);
+			return resolvedCwd;
+		},
+		[dispatch],
+	);
+
+	// "New session" ALWAYS asks for a folder first (native picker), then starts
+	// a fresh session bound to it — the chosen directory becomes the agent's
+	// working dir, so generated files land where the user expects (pi's "open
+	// from any folder"). Cancelling the picker is a no-op: we never silently
+	// create a session in an unintended folder, and the active session is left
+	// untouched.
+	const handleNewSessionPrompt = useCallback(async () => {
+		let selected: string | null = null;
 		try {
-			await invoke("new_session");
+			const picked = await openDialog({
+				directory: true,
+				multiple: false,
+				title: "Choose a folder for this session",
+				...(workspaceCwd ? { defaultPath: workspaceCwd } : {}),
+			});
+			if (typeof picked === "string") selected = picked;
 		} catch {
-			// ignore
+			// dialog unavailable — fall through to no-op
 		}
-		dispatch({ type: "RESET" });
-		setLoadedSessionMessages(null);
-		setActiveSessionFile(`session-${Date.now()}.jsonl`);
-	}, [dispatch]);
+		if (!selected) return; // cancelled — don't create, don't touch active session
+		setSidebarView("chats");
+		await handleNewSession(selected);
+	}, [handleNewSession, workspaceCwd]);
+
+	// Load the sidecar's active workspace once it's ready, so the sidebar can
+	// show "where am I working" from the first paint.
+	useEffect(() => {
+		let cancelled = false;
+		invoke<{ cwd?: string; default?: string }>("get_workspace")
+			.then((res) => {
+				if (cancelled || !res) return;
+				if (typeof res.cwd === "string") setWorkspaceCwd(res.cwd);
+				if (typeof res.default === "string") setHomeDir(res.default);
+			})
+			.catch(() => {
+				// sidecar not ready yet — harmless; updated on next new_session
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	const [pendingDelete, setPendingDelete] = useState<{ file: string; title: string } | null>(null);
 
@@ -494,9 +563,14 @@ function App() {
 			dispatch({ type: "RESET" });
 			try {
 				const result = await invoke("load_session", { sessionFile: file });
-				const data = result as { messages: ChatMessage[] };
+				const data = result as { messages: ChatMessage[]; cwd?: string };
 				if (data.messages && data.messages.length > 0) {
 					setLoadedSessionMessages(data.messages);
+				}
+				// Reflect the workspace this session was restored into (the sidecar
+				// rebinds to the session's saved folder, or home for legacy chats).
+				if (typeof data.cwd === "string") {
+					setWorkspaceCwd(data.cwd);
 				}
 			} catch (err) {
 				console.error("Failed to load session:", err);
@@ -526,6 +600,7 @@ function App() {
 		lastMessage: `${s.messageCount} messages`,
 		timestamp: s.lastActivity || s.createdAt,
 		active: s.file === activeSessionFile,
+		folder: s.cwd,
 	}));
 
 	return (
@@ -578,8 +653,9 @@ function App() {
 							}}
 							onNewSession={() => {
 								setSidebarView("chats");
-								handleNewSession();
+								handleNewSessionPrompt();
 							}}
+							homeDir={homeDir ?? undefined}
 							onDeleteSession={handleDeleteSession}
 							onChangeView={(view) => {
 								setSidebarView(view);
@@ -627,8 +703,9 @@ function App() {
 								}}
 								onNewSession={() => {
 									setSidebarView("chats");
-									handleNewSession();
+									handleNewSessionPrompt();
 								}}
+								homeDir={homeDir ?? undefined}
 								onDeleteSession={handleDeleteSession}
 								onChangeView={(view) => {
 									setSidebarView(view);

@@ -17,6 +17,7 @@ import {
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -144,6 +145,8 @@ import {
 interface InitCommand {
 	type: "init";
 	zosmaDir?: string;
+	/** Optional initial workspace folder; defaults to the home directory. */
+	workspace?: string;
 }
 
 interface GetModelsCommand {
@@ -237,6 +240,17 @@ interface DeleteSessionCommand {
 
 interface NewSessionCommand {
 	type: "new_session";
+	id: string;
+	/**
+	 * Optional workspace folder for the new session. When set (and different
+	 * from the active workspace), the agent's file/bash tools and project-local
+	 * resource discovery rebind to this folder. Omitted → keep current workspace.
+	 */
+	cwd?: string;
+}
+
+interface GetWorkspaceCommand {
+	type: "get_workspace";
 	id: string;
 }
 
@@ -352,6 +366,7 @@ type Command =
 	| LoadSessionCommand
 	| DeleteSessionCommand
 	| NewSessionCommand
+	| GetWorkspaceCommand
 	| ListSessionsCommand
 	| GetSettingsCommand
 	| SaveSettingsCommand
@@ -445,6 +460,59 @@ function zosmaAgentDir(zosmaDir: string): string {
 }
 
 /**
+ * Default workspace directory — where the agent reads/writes files when no
+ * folder is explicitly chosen.
+ *
+ * This is the user's HOME directory, treated as the "full system" — the same
+ * mental model as opening pi in `~`: the agent can range across the whole home
+ * tree. New sessions either pick a specific folder (native picker) or fall back
+ * here; legacy sessions with no saved cwd also resume here.
+ *
+ * Why not `process.cwd()`? Cowork's sidecar is spawned by the Tauri shell,
+ * which (for a GUI launch) inherits an arbitrary, user-invisible cwd — `/` on a
+ * Linux .desktop launch, the app bundle dir on macOS, system32-ish on Windows.
+ * Home is predictable and always exists.
+ */
+function defaultWorkspaceDir(): string {
+	return homedir();
+}
+
+/**
+ * Resolve a requested workspace path to a usable, existing directory.
+ *
+ * - Empty/undefined → the default workspace dir.
+ * - Leading `~` is expanded to the user's home.
+ * - The directory is created if missing.
+ * - Anything that isn't a real directory (a file path, an un-creatable path)
+ *   falls back to the default workspace dir so the agent never ends up with an
+ *   invalid cwd (which would make every file tool call fail).
+ */
+function resolveWorkspace(requested?: string): string {
+	let target = requested?.trim() ? requested.trim() : defaultWorkspaceDir();
+	if (target === "~") {
+		target = homedir();
+	} else if (target.startsWith("~/") || target.startsWith("~\\")) {
+		target = join(homedir(), target.slice(2));
+	}
+	try {
+		ensureDir(target);
+		if (!statSync(target).isDirectory()) {
+			throw new Error("not a directory");
+		}
+		return target;
+	} catch (err) {
+		log(
+			"workspace resolve failed for %s: %s — falling back to default",
+			target,
+			err instanceof Error ? err.message : String(err),
+		);
+		const fallback = defaultWorkspaceDir();
+		ensureDir(fallback);
+		return fallback;
+	}
+}
+
+/**
  * pi's canonical agent directory (~/.pi/agent).
  *
  * Zosma Cowork wraps pi-coding-agent, so it shares pi's resources:
@@ -511,6 +579,7 @@ function listSessionFiles(zosmaDir: string): Array<{
 	title: string;
 	model?: string;
 	provider?: string;
+	cwd?: string;
 	messageCount: number;
 	createdAt: number;
 	lastActivity: number;
@@ -528,6 +597,7 @@ function listSessionFiles(zosmaDir: string): Array<{
 		title: string;
 		model?: string;
 		provider?: string;
+		cwd?: string;
 		messageCount: number;
 		createdAt: number;
 		lastActivity: number;
@@ -563,6 +633,7 @@ function listSessionFiles(zosmaDir: string): Array<{
 				title: header.title || file.replace(".jsonl", ""),
 				model: header.model,
 				provider: header.provider,
+				cwd: typeof header.cwd === "string" ? header.cwd : undefined,
 				messageCount,
 				createdAt: header.createdAt || 0,
 				lastActivity,
@@ -588,6 +659,7 @@ function saveSession(
 	messages: unknown[],
 	model?: string,
 	provider?: string,
+	cwd?: string,
 ): void {
 	const sDir = sessionsDir(zosmaDir);
 	ensureDir(sDir);
@@ -602,6 +674,9 @@ function saveSession(
 		createdAt: Date.now(),
 		model,
 		provider,
+		// Workspace folder this conversation ran in, so resuming restores the
+		// same cwd. Absent on legacy sessions → they fall back to the default.
+		cwd,
 		messageCount: messages.length,
 	};
 
@@ -780,6 +855,12 @@ async function main() {
 
 	// Defaults
 	let zosmaDir = defaultZosmaDir();
+	// The agent's working directory — where file/bash tools read & write the
+	// user's project files. Pinned to a predictable default until a session
+	// explicitly selects a folder (see resolveWorkspace + new_session.cwd).
+	// Deliberately NOT process.cwd(): a GUI-launched sidecar inherits an
+	// arbitrary cwd the user never chose.
+	let workspaceCwd = resolveWorkspace();
 	let activePromptId: string | null = null;
 	// Serializes prompt execution WITHOUT blocking the stdin read loop, so an
 	// `abort` (and the next prompt) stay readable mid-generation. See
@@ -804,8 +885,103 @@ async function main() {
 	// Flag: ready to accept prompts
 	let initialized = false;
 
-	async function initAgent(zosmaDirPath: string) {
+	/**
+	 * Build a DefaultResourceLoader bound to a specific workspace `cwd`.
+	 *
+	 * Extracted from initAgent so a fresh session can rebind the loader to a
+	 * newly-selected folder (new_session.cwd) without a full re-init. Shared pi
+	 * resources still come from ~/.pi/agent (agentDir); only project-local
+	 * discovery and the tools' working directory follow `cwd`.
+	 *
+	 * Requires settingsManager to be initialized first.
+	 */
+	async function buildResourceLoader(
+		cwd: string,
+	): Promise<DefaultResourceLoader> {
+		if (!settingsManager) {
+			throw new Error("buildResourceLoader: settingsManager not initialized");
+		}
+		const piResourceDir = piAgentDir();
+		ensureDir(piResourceDir);
+
+		// Load pi's disk/npm/git extensions ourselves, via virtualModules-backed
+		// jiti (see disk-extension-loader.ts). The shipped sidecar is a single
+		// esbuild bundle with no node_modules, so pi's native loader cannot
+		// resolve extension deps and every extension fails silently (#147). We
+		// resolve entry paths with pi's own package manager and load them with
+		// the bundled package copies. This path is used in dev too (tsx) for
+		// dev/prod parity. `noExtensions: true` below stops the resource loader
+		// from also trying (and failing) to load them.
+		let diskExtensionFactories: ExtensionFactory[] = [];
+		try {
+			const built = await buildExtensionFactories({
+				cwd,
+				agentDir: piResourceDir,
+				settingsManager,
+			});
+			diskExtensionFactories = built.factories;
+			log(
+				`loading ${built.paths.length} pi extension(s) via virtualModules: ${
+					built.paths.join(", ") || "(none)"
+				}`,
+			);
+		} catch (err) {
+			log(
+				`failed to resolve pi extensions: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+
+		const loader = new DefaultResourceLoader({
+			cwd,
+			// Discover shared pi resources from ~/.pi/agent (not the cowork dir).
+			agentDir: piResourceDir,
+			settingsManager,
+			// We load ALL extensions ourselves (vendored inline + pi's disk/npm
+			// extensions via jiti). Skills/prompts/themes still load normally.
+			noExtensions: true,
+			extensionFactories: [
+				piAnthropicMessages,
+				zosmaOfficeDocs,
+				...diskExtensionFactories,
+			],
+			systemPromptOverride: () => ZOSMA_SYSTEM_PROMPT,
+			appendSystemPromptOverride: () => [],
+		});
+		await loader.reload();
+		// Surface any extension-load errors — they're silently collected by
+		// the loader otherwise, which made the pi-anthropic-messages bridge
+		// look "installed" while never actually activating.
+		try {
+			const extResult = loader.getExtensions();
+			if (extResult.errors && extResult.errors.length > 0) {
+				for (const err of extResult.errors) {
+					log("extension load error: %s — %s", err.path, err.error);
+				}
+			}
+			log(
+				"extensions loaded: %d (errors: %d)",
+				extResult.extensions?.length ?? 0,
+				extResult.errors?.length ?? 0,
+			);
+			for (const ext of extResult.extensions ?? []) {
+				log("  - %s", ext.path);
+			}
+		} catch (err) {
+			log("getExtensions failed: %s", err);
+		}
+		return loader;
+	}
+
+	async function initAgent(zosmaDirPath: string, workspace?: string) {
 		zosmaDir = zosmaDirPath;
+		// A caller-supplied workspace folder overrides the default. Resolved &
+		// created here so the rest of init binds tools/sessions to a real dir.
+		if (workspace !== undefined) {
+			workspaceCwd = resolveWorkspace(workspace);
+		}
+		log("Workspace cwd: %s", workspaceCwd);
 		const agentDir = zosmaAgentDir(zosmaDir);
 		ensureDir(agentDir);
 
@@ -909,82 +1085,20 @@ async function main() {
 		// APPEND_SYSTEM.md the loader would otherwise pick up from
 		// ~/.zosmaai/agent (or pi's own dirs) — those files are meant for
 		// pi CLI users, not Zosma's bundled sidecar.
-		const piResourceDir = piAgentDir();
-		ensureDir(piResourceDir);
+		// Build the resource loader bound to the active workspace cwd. Project-
+		// local resources (a `.agents/` folder inside the chosen workspace) are
+		// discovered relative to this cwd, mirroring pi's "open from any folder".
+		resourceLoader = await buildResourceLoader(workspaceCwd);
 
-		// Load pi's disk/npm/git extensions ourselves, via virtualModules-backed
-		// jiti (see disk-extension-loader.ts). The shipped sidecar is a single
-		// esbuild bundle with no node_modules, so pi's native loader cannot
-		// resolve extension deps and every extension fails silently (#147). We
-		// resolve entry paths with pi's own package manager and load them with
-		// the bundled package copies. This path is used in dev too (tsx) for
-		// dev/prod parity. `noExtensions: true` below stops the resource loader
-		// from also trying (and failing) to load them.
-		let diskExtensionFactories: ExtensionFactory[] = [];
-		try {
-			const built = await buildExtensionFactories({
-				cwd: process.cwd(),
-				agentDir: piResourceDir,
-				settingsManager,
-			});
-			diskExtensionFactories = built.factories;
-			log(
-				`loading ${built.paths.length} pi extension(s) via virtualModules: ${
-					built.paths.join(", ") || "(none)"
-				}`,
-			);
-		} catch (err) {
-			log(
-				`failed to resolve pi extensions: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
-			);
-		}
+		// Session manager — in-memory (persistence handled by sidecar commands).
+		// Bind it to the workspace cwd so the agent's file/bash tools read & write
+		// the user's chosen folder, not the sidecar's inherited process.cwd().
+		sessionManager = SessionManager.inMemory(workspaceCwd);
 
-		resourceLoader = new DefaultResourceLoader({
-			cwd: process.cwd(),
-			// Discover shared pi resources from ~/.pi/agent (not the cowork dir).
-			agentDir: piResourceDir,
-			settingsManager,
-			// We load ALL extensions ourselves (vendored inline + pi's disk/npm
-			// extensions via jiti). Skills/prompts/themes still load normally.
-			noExtensions: true,
-			extensionFactories: [
-				piAnthropicMessages,
-				zosmaOfficeDocs,
-				...diskExtensionFactories,
-			],
-			systemPromptOverride: () => ZOSMA_SYSTEM_PROMPT,
-			appendSystemPromptOverride: () => [],
-		});
-		await resourceLoader.reload();
-		// Surface any extension-load errors — they're silently collected by
-		// the loader otherwise, which made the pi-anthropic-messages bridge
-		// look "installed" while never actually activating.
-		try {
-			const extResult = resourceLoader.getExtensions();
-			if (extResult.errors && extResult.errors.length > 0) {
-				for (const err of extResult.errors) {
-					log("extension load error: %s — %s", err.path, err.error);
-				}
-			}
-			log(
-				"extensions loaded: %d (errors: %d)",
-				extResult.extensions?.length ?? 0,
-				extResult.errors?.length ?? 0,
-			);
-			for (const ext of extResult.extensions ?? []) {
-				log("  - %s", ext.path);
-			}
-		} catch (err) {
-			log("getExtensions failed: %s", err);
-		}
-
-		// Session manager — in-memory (persistence handled by sidecar commands)
-		sessionManager = SessionManager.inMemory();
-
-		// Create the agent session
+		// Create the agent session. `cwd` is passed explicitly (not left to the
+		// process default) so tools are bound to the workspace folder.
 		const result = await createAgentSession({
+			cwd: workspaceCwd,
 			authStorage,
 			modelRegistry,
 			sessionManager,
@@ -1114,6 +1228,7 @@ async function main() {
 								chatMessages,
 								activeSession.model?.id,
 								activeSession.model?.provider,
+								workspaceCwd,
 							);
 							log(
 								"Saved remote session: %s (%d messages)",
@@ -1138,7 +1253,7 @@ async function main() {
 		switch (cmd.type) {
 				// ── init ───────────────────────────────────────────────────
 				case "init": {
-					await initAgent(cmd.zosmaDir ?? defaultZosmaDir());
+					await initAgent(cmd.zosmaDir ?? defaultZosmaDir(), cmd.workspace);
 					break;
 				}
 
@@ -1598,8 +1713,19 @@ async function main() {
 						send({ type: "error", id: cmd.id, error: "Agent not initialized" });
 						break;
 					}
-					const newSessionManager = SessionManager.inMemory();
+					// If the UI passed a folder, switch the workspace. A changed cwd
+					// also rebinds the resource loader so a `.agents/` folder inside
+					// the chosen project is discovered (pi's "open from any folder").
+					// Same folder → reuse the cached loader (avoids a disk re-scan).
+					const requestedCwd = resolveWorkspace(cmd.cwd);
+					if (requestedCwd !== workspaceCwd) {
+						workspaceCwd = requestedCwd;
+						log("new_session: workspace → %s", workspaceCwd);
+						resourceLoader = await buildResourceLoader(workspaceCwd);
+					}
+					const newSessionManager = SessionManager.inMemory(workspaceCwd);
 					const result = await createAgentSession({
+						cwd: workspaceCwd,
 						authStorage,
 						modelRegistry,
 						sessionManager: newSessionManager,
@@ -1614,7 +1740,21 @@ async function main() {
 						send({ type: "event", event });
 					});
 
-					send({ type: "result", id: cmd.id, data: { success: true } });
+					send({
+						type: "result",
+						id: cmd.id,
+						data: { success: true, cwd: workspaceCwd },
+					});
+					break;
+				}
+
+				// ── get_workspace ──────────────────────────────────────────
+				case "get_workspace": {
+					send({
+						type: "result",
+						id: cmd.id,
+						data: { cwd: workspaceCwd, default: defaultWorkspaceDir() },
+					});
 					break;
 				}
 
@@ -1638,6 +1778,8 @@ async function main() {
 						cmd.messages || [],
 						cmd.model,
 						cmd.provider,
+						// Stamp the active workspace so resume restores this folder.
+						workspaceCwd,
 					);
 					send({ type: "done", id: cmd.id });
 					break;
@@ -1663,14 +1805,30 @@ async function main() {
 						// Unlike the `reload` command we do NOT call initAgent(): that
 						// re-emits `ready` and would reset the frontend model selection.
 						if (authStorage && modelRegistry && settingsManager && resourceLoader) {
-							// 1. Re-scan disk for newly added extensions/skills/prompts.
-							await resourceLoader.reload();
-							// 2. Rebuild the session from the reloaded loader.
+							// 0. Restore the workspace this conversation ran in. Legacy
+							//    sessions have no saved cwd → resolveWorkspace(undefined)
+							//    falls back to the default (home).
+							const sessionCwd = resolveWorkspace(
+								typeof header.cwd === "string" ? header.cwd : undefined,
+							);
+							if (sessionCwd !== workspaceCwd) {
+								// Folder changed: rebuild the loader bound to the restored
+								// cwd (this also re-scans disk for new extensions/skills).
+								workspaceCwd = sessionCwd;
+								log("load_session: workspace → %s", workspaceCwd);
+								resourceLoader = await buildResourceLoader(workspaceCwd);
+							} else {
+								// Same folder: just re-scan for newly added resources.
+								await resourceLoader.reload();
+							}
+							// Rebuild the session from the (re)loaded loader.
 							if (session) {
 								session.abort();
 							}
-							const resumedSessionManager = SessionManager.inMemory();
+							const resumedSessionManager =
+								SessionManager.inMemory(workspaceCwd);
 							const resumed = await createAgentSession({
+								cwd: workspaceCwd,
 								authStorage,
 								modelRegistry,
 								sessionManager: resumedSessionManager,
@@ -1698,6 +1856,7 @@ async function main() {
 								title: header.title || "",
 								model: header.model,
 								provider: header.provider,
+								cwd: workspaceCwd,
 							},
 						});
 					} catch (err) {
@@ -1855,7 +2014,7 @@ async function main() {
 
 						const piSkillsDir = join(homedir(), ".pi", "agent", "skills");
 						const globalDir = join(homedir(), ".agents", "skills");
-						const localDir = join(process.cwd(), ".agents", "skills");
+						const localDir = join(workspaceCwd, ".agents", "skills");
 
 						for (const [scope, dir] of [
 							["global", piSkillsDir],

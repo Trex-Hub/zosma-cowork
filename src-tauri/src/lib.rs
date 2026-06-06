@@ -673,18 +673,24 @@ async fn has_credentials(s: State<'_, AppState>) -> Result<bool, String> {
     if !s.sidecar.ready.load(Ordering::Acquire) {
         return Ok(false);
     }
+    // "Has credentials" must mean the user has actually AUTHENTICATED at least
+    // one provider — not that the model catalog is non-empty. Shared pi
+    // extensions (e.g. `pi-crofai`) register provider model catalogs WITHOUT
+    // any stored credential, so counting `get_models` made a freshly-wiped
+    // install look authenticated and skipped onboarding, dropping the user into
+    // chat with non-working models. Count authenticated providers from auth
+    // storage instead (the same list the onboarding/Connect screen reflects).
     let id = format!("hc-{}", uuid_v4());
     let r = scmd_r(
         &s,
-        &serde_json::json!({"type":"get_models","id":id}),
+        &serde_json::json!({"type":"get_auth_status","id":id}),
         std::time::Duration::from_secs(30),
     )
     .await?;
-    Ok(r.get("models")
+    Ok(r.get("providers")
         .and_then(|v| v.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0)
-        > 0)
+        .map(|a| !a.is_empty())
+        .unwrap_or(false))
 }
 
 #[tauri::command]

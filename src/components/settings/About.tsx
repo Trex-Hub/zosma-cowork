@@ -23,16 +23,12 @@ export function About() {
 			>
 				{/* App identity */}
 				<div className="px-4 py-4 flex items-center gap-3">
-					<div
-						className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg font-bold"
-						style={{
-							background: "hsl(var(--primary) / 0.12)",
-							color: "hsl(var(--primary))",
-							fontFamily: "var(--font-chakra)",
-						}}
-					>
-						Z
-					</div>
+					<img
+						src="/zosma-mark.png"
+						alt="Zosma Cowork"
+						className="w-10 h-10 rounded-xl shrink-0 object-cover"
+						draggable={false}
+					/>
 					<div>
 						<p className="text-[13px] font-semibold text-foreground leading-tight">Zosma Cowork</p>
 						<p className="text-[11px] text-muted-foreground mt-0.5">Desktop AI coworker</p>

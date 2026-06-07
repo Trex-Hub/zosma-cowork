@@ -16,17 +16,12 @@ export function SplashScreen({ message = "Starting up…" }: SplashScreenProps) 
 	return (
 		<div className="flex-1 flex flex-col items-center justify-center h-full gap-6 animate-fade-in">
 			{/* Logo mark — matches the onboarding splash */}
-			<div
-				className="w-16 h-16 rounded-xl flex items-center justify-center animate-subtle-pulse"
-				style={{
-					background:
-						"linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.05))",
-				}}
-			>
-				<span className="text-2xl font-bold" style={{ color: "hsl(var(--primary))" }}>
-					Z
-				</span>
-			</div>
+			<img
+				src="/zosma-mark.png"
+				alt="Zosma Cowork"
+				className="w-16 h-16 rounded-2xl shadow-lg animate-subtle-pulse"
+				draggable={false}
+			/>
 
 			<div className="flex flex-col items-center gap-3">
 				<h1 className="text-lg font-semibold" style={{ color: "hsl(var(--foreground))" }}>

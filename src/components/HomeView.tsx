@@ -135,17 +135,12 @@ export function HomeView({
 		return (
 			<div className="flex flex-col items-center justify-center h-full px-8 py-12 max-w-sm mx-auto overflow-y-auto">
 				{/* Logo mark */}
-				<div
-					className="w-16 h-16 rounded-xl flex items-center justify-center mb-5"
-					style={{
-						background:
-							"linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.05))",
-					}}
-				>
-					<span className="text-2xl font-bold" style={{ color: "hsl(var(--primary))" }}>
-						Z
-					</span>
-				</div>
+				<img
+					src="/zosma-mark.png"
+					alt="Zosma Cowork"
+					className="w-16 h-16 rounded-2xl shadow-lg mb-5"
+					draggable={false}
+				/>
 
 				<h1
 					className="text-xl font-bold text-center mb-1"

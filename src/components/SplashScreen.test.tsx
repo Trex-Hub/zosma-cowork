@@ -6,7 +6,9 @@ describe("SplashScreen", () => {
 	it("renders the Zosma Cowork branding and logo mark", () => {
 		render(<SplashScreen />);
 		expect(screen.getByText("Zosma Cowork")).toBeDefined();
-		expect(screen.getByText("Z")).toBeDefined();
+		const logo = screen.getByAltText("Zosma Cowork") as HTMLImageElement;
+		expect(logo).toBeDefined();
+		expect(logo.getAttribute("src")).toContain("zosma-mark.png");
 	});
 
 	it("shows the default loading message", () => {

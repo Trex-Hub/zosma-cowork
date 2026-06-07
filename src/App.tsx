@@ -1,4 +1,5 @@
 import { ChatView } from "@/chat/ChatView";
+import { ChatWidthToggle } from "@/components/ChatWidthToggle";
 import { ExtensionUiHost } from "@/components/ExtensionUiHost";
 import { HomeView } from "@/components/HomeView";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
@@ -766,7 +767,8 @@ const [pendingDelete, setPendingDelete] = useState<{ file: string; title: string
 
 				{/* Floating action overlay — no layout cost */}
 				{!hideChrome && (
-					<div className="hidden md:flex absolute top-2 right-3 z-10">
+					<div className="hidden md:flex items-center gap-2 absolute top-2 right-3 z-10">
+						<ChatWidthToggle />
 						<ShareExport messages={displayMessages} />
 					</div>
 				)}

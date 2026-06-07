@@ -1,11 +1,12 @@
 import { trackEvent } from "@/lib/telemetry";
 import type { ChatMessage as ChatMessageType, ModelInfo } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
-import { Clipboard, Download, FolderOpen } from "lucide-react";
+import { Clipboard, Download, FolderOpen, User } from "lucide-react";
 import { useCallback, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ActivityBlock, ActivityRecap } from "./ActivityBlock";
+import { markdownComponents } from "./MarkdownComponents";
 import { FeedbackButtons } from "./FeedbackButtons";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallSummary, ToolCallTimeline } from "./ToolCallTimeline";
@@ -113,34 +114,34 @@ export function ChatMessageItem({ message, detailsExpanded, models }: ChatMessag
 	}
 
 	return (
-		<div
-			className="group flex gap-3.5 py-4 px-6 transition-colors animate-fade-in"
-			style={{
-				background: isUser ? "hsl(var(--chat-user-bg))" : "hsl(var(--chat-assistant-bg))",
-			}}
-		>
+		<div className="group px-4 py-1.5 animate-fade-in">
+			<div
+				className="flex gap-3.5 mx-auto w-full rounded-2xl px-4 py-3 transition-colors"
+				style={{
+					maxWidth: "var(--chat-max-width, 820px)",
+					background: isUser ? "hsl(var(--chat-user-bg))" : "hsl(var(--chat-assistant-bg))",
+				}}
+			>
 			{/* Avatar */}
 			<div className="flex-shrink-0">
 				{isUser ? (
 					<div
-						className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-semibold"
+						className="w-7 h-7 rounded-lg flex items-center justify-center"
 						style={{
-							background: "#000000",
-							color: "hsl(var(--primary))",
+							background:
+								"linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--primary) / 0.6))",
+							color: "hsl(var(--primary-foreground))",
 						}}
 					>
-						You
+						<User className="w-4 h-4" strokeWidth={2.5} />
 					</div>
 				) : (
-					<div
-						className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold"
-						style={{
-							background: "hsl(var(--chat-avatar-assistant-bg))",
-							color: "hsl(var(--chat-avatar-assistant-fg))",
-						}}
-					>
-						Z
-					</div>
+					<img
+						src="/zosma-mark.png"
+						alt="Zosma"
+						className="w-7 h-7 rounded-lg object-cover"
+						draggable={false}
+					/>
 				)}
 			</div>
 
@@ -208,10 +209,12 @@ export function ChatMessageItem({ message, detailsExpanded, models }: ChatMessag
 				{/* Content */}
 				{(message.content || message.isStreaming) && (
 					<div
-						className="prose prose-sm max-w-none"
+						className="chat-markdown"
 						style={{ color: isUser ? "hsl(var(--chat-user-fg))" : "hsl(var(--chat-assistant-fg))" }}
 					>
-						<ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || ""}</ReactMarkdown>
+						<ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+							{message.content || ""}
+						</ReactMarkdown>
 						{message.isStreaming && (
 							<span
 								className="inline-block w-2 h-4 ml-0.5 align-middle animate-pulse"
@@ -259,6 +262,7 @@ export function ChatMessageItem({ message, detailsExpanded, models }: ChatMessag
 						</div>
 					</div>
 				)}
+			</div>
 			</div>
 		</div>
 	);

@@ -22,6 +22,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getFontScale } from "./lib/font-scale";
 
 interface SessionEntry {
 	file: string;
@@ -542,7 +543,10 @@ function App() {
 		};
 	}, []);
 
-	const [pendingDelete, setPendingDelete] = useState<{ file: string; title: string } | null>(null);
+	// Font scale / zoom preference
+const [fontScale, setFontScale] = useState<number>(() => getFontScale());
+
+const [pendingDelete, setPendingDelete] = useState<{ file: string; title: string } | null>(null);
 
 	const handleDeleteSession = useCallback(
 		(file: string) => {
@@ -618,7 +622,7 @@ function App() {
 	}));
 
 	return (
-		<div className="flex h-screen bg-background">
+		<div className="flex h-screen bg-background" style={{ zoom: fontScale }}>
 			{/* Extension UI dialogs (pi-ask-user etc. via ctx.ui) */}
 			<ExtensionUiHost />
 
@@ -806,6 +810,8 @@ function App() {
 									if (enabled) telemetry.enable();
 									else telemetry.disable();
 								}}
+								fontScale={fontScale}
+								onFontScaleChange={setFontScale}
 							/>
 						) : loadingSession ? (
 							<div className="flex-1 flex flex-col items-center justify-center gap-4">

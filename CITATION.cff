@@ -3,6 +3,19 @@ title: Zosma Cowork
 message: If you use this software, please cite it as below.
 type: software
 authors:
+  - given-names: Arjun
+    family-names: Nayak
+    affiliation: Zosma AI
+    alias: arjun-zosma
+  - given-names: Akshay
+    family-names: Mhaskar
+    alias: CelestialCreator
+  - given-names: Shanvit
+    affiliation: Zosma AI
+    alias: Shanvit7
+  - given-names: Devendra
+    family-names: Mishra
+    affiliation: Zosma AI
   - name: Zosma AI
     website: https://zosma.ai
 abstract: >-

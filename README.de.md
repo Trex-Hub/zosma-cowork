@@ -239,7 +239,7 @@ Wenn Sie Zosma Cowork in Ihrer Arbeit verwenden, zitieren Sie es bitte wie folgt
 
 ```bibtex
 @software{zosma_cowork,
-  author  = {Zosma AI},
+  author  = {Nayak, Arjun and Mhaskar, Akshay and Shanvit and Mishra, Devendra},
   title   = {{Zosma Cowork: A Desktop Agentic Work Harness}},
   url     = {https://github.com/zosmaai/zosma-cowork},
   version = {0.15.2},

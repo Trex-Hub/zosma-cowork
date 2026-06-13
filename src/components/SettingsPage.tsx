@@ -103,15 +103,11 @@ export function SettingsPage({
 	const xOffset = reduced ? 0 : 10 * direction;
 
 	return (
-		<div
-			ref={containerRef}
-			tabIndex={-1}
-			className="flex flex-col h-full bg-background outline-none"
-		>
+		<div ref={containerRef} tabIndex={-1} className="flex flex-col h-full outline-none">
 			{/* ── Mobile-only top bar ── */}
 			<div
-				className="md:hidden flex items-center gap-2 px-3 shrink-0"
-				style={{ height: 44, borderBottom: "1px solid hsl(var(--border))" }}
+				className="md:hidden settings-rail settings-rail-bottom flex items-center gap-2 px-3 shrink-0"
+				style={{ height: 44 }}
 			>
 				<button
 					type="button"
@@ -125,10 +121,7 @@ export function SettingsPage({
 			</div>
 
 			{/* ── Mobile-only horizontal tab strip ── */}
-			<div
-				className="md:hidden overflow-x-auto shrink-0"
-				style={{ borderBottom: "1px solid hsl(var(--border))" }}
-			>
+			<div className="md:hidden settings-rail settings-rail-bottom overflow-x-auto shrink-0">
 				<div className="flex gap-1 px-2 py-1.5 min-w-max">
 					{SECTIONS.map((s) => {
 						const isActive = activeSection === s.id;
@@ -137,12 +130,11 @@ export function SettingsPage({
 								key={s.id}
 								type="button"
 								onClick={() => handleNavClick(s.id)}
-								className="px-3 py-1.5 rounded-md text-[11px] whitespace-nowrap shrink-0 transition-colors"
-								style={{
-									background: isActive ? "hsl(var(--accent))" : "transparent",
-									color: isActive ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
-									fontWeight: isActive ? 500 : 400,
-								}}
+								className={`px-3 py-1.5 rounded-md text-[11px] whitespace-nowrap shrink-0 transition-colors ${
+									isActive
+										? "border border-primary/25 bg-primary/12 text-foreground font-medium"
+										: "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+								}`}
 							>
 								{s.label}
 							</button>
@@ -158,23 +150,20 @@ export function SettingsPage({
 				</div>
 			</div>
 
-			{/* ── Body: desktop sidebar + shared content ── */}
-			<div className="flex flex-1 min-h-0">
-				{/* Desktop sidebar */}
+			{/* ── Body: two floating glass panels (rail + content) like home ── */}
+			<div className="flex flex-1 min-h-0 md:gap-2.5">
+				{/* Desktop sidebar — rounded floating glass panel, same as home */}
 				<motion.aside
-					className="hidden md:flex flex-col shrink-0"
-					style={{
-						width: 220,
-						borderRight: "1px solid hsl(var(--border))",
-					}}
+					className="hidden md:flex flex-col shrink-0 panel-sidebar overflow-hidden"
+					style={{ width: 220 }}
 					initial={reduced ? false : { x: -10, opacity: 0 }}
 					animate={{ x: 0, opacity: 1 }}
 					transition={{ duration: 0.28, ease: easeOutExpo }}
 				>
 					{/* Header row */}
 					<div
-						className="flex items-center gap-2 px-3 shrink-0"
-						style={{ height: 48, borderBottom: "1px solid hsl(var(--border))" }}
+						className="flex items-center gap-2 px-3 shrink-0 border-b border-[hsl(var(--elev-border)/0.6)]"
+						style={{ height: 48 }}
 					>
 						<motion.button
 							type="button"
@@ -206,7 +195,7 @@ export function SettingsPage({
 									{isActive && (
 										<motion.div
 											layoutId="settings-nav-pill"
-											className="absolute inset-0 rounded-lg bg-accent"
+											className="absolute inset-0 rounded-lg border border-primary/25 bg-primary/12"
 											transition={{ duration: reduced ? 0 : 0.2, ease: easeOutExpo }}
 										/>
 									)}
@@ -231,7 +220,7 @@ export function SettingsPage({
 					</nav>
 
 					{/* Feedback */}
-					<div className="px-2 py-2 shrink-0" style={{ borderTop: "1px solid hsl(var(--border))" }}>
+					<div className="px-2 py-2 shrink-0 border-t border-[hsl(var(--elev-border)/0.6)]">
 						<motion.button
 							type="button"
 							onClick={() => setShowFeedback(true)}
@@ -253,26 +242,29 @@ export function SettingsPage({
 					</div>
 				</motion.aside>
 
-				{/* ── Shared content area (desktop + mobile) ── */}
-				<main className="flex-1 min-w-0 overflow-y-auto">
-					<motion.div
-						key={activeSection}
-						className="w-full h-full"
-						initial={reduced ? { opacity: 0 } : { opacity: 0, x: xOffset }}
-						animate={{ opacity: 1, x: 0 }}
-						transition={{ duration: 0.2, ease: easeOutExpo }}
-					>
-						<div className="px-6 md:px-8 py-6 md:py-7">
-							<SectionContent
-								activeSection={activeSection}
-								onShowKeyEntry={onShowKeyEntry}
-								telemetryEnabled={telemetryEnabled}
-								onTelemetryToggle={onTelemetryToggle}
-								fontScale={fontScale}
-								onFontScaleChange={onFontScaleChange}
-							/>
-						</div>
-					</motion.div>
+				{/* ── Content — rounded floating glass panel; sections slide in
+				     like a game-menu/dashboard (desktop + mobile) ── */}
+				<main className="flex-1 min-w-0 panel-raised overflow-hidden flex flex-col">
+					<div className="flex-1 overflow-y-auto flex flex-col min-h-0">
+						<motion.div
+							key={activeSection}
+							className="flex-1 flex flex-col min-h-0"
+							initial={reduced ? { opacity: 0 } : { opacity: 0, x: xOffset, scale: 0.985 }}
+							animate={{ opacity: 1, x: 0, scale: 1 }}
+							transition={{ duration: 0.26, ease: easeOutExpo }}
+						>
+							<div className="px-6 md:px-8 py-6 md:py-7 flex-1 flex flex-col min-h-0">
+								<SectionContent
+									activeSection={activeSection}
+									onShowKeyEntry={onShowKeyEntry}
+									telemetryEnabled={telemetryEnabled}
+									onTelemetryToggle={onTelemetryToggle}
+									fontScale={fontScale}
+									onFontScaleChange={onFontScaleChange}
+								/>
+							</div>
+						</motion.div>
+					</div>
 				</main>
 			</div>
 

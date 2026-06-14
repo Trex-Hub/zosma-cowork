@@ -1,6 +1,9 @@
 import { ListChecks, MessageSquare, Settings } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import type { RoutinesStatus } from "@/hooks/useRoutinesExtension";
+import type { Task } from "@/types";
 import { ConversationSearch, type DeepSearchMatch } from "./ConversationSearch";
+import { TasksList } from "./TasksList";
 
 interface Session {
 	id: string;
@@ -32,6 +35,18 @@ interface SidebarProps {
 	onChangeView: (view: string) => void;
 	/** The user's home dir, used to collapse session paths to `~`. */
 	homeDir?: string;
+
+	// ── Tasks tab (#289) ──
+	/** Scheduled tasks for the Tasks tab list. */
+	tasks?: Task[];
+	tasksLoading?: boolean;
+	tasksError?: string | null;
+	/** Currently selected task (drives the main-pane detail). */
+	selectedTaskId?: string | null;
+	onTaskSelect?: (id: string) => void;
+	/** pi-routines install/enable lifecycle for the Tasks tab. */
+	routinesStatus?: RoutinesStatus;
+	onRetryRoutines?: () => void;
 }
 
 const TABS = [
@@ -54,6 +69,13 @@ export function Sidebar({
 	onDeepSearch,
 	onChangeView,
 	homeDir,
+	tasks = [],
+	tasksLoading = false,
+	tasksError = null,
+	selectedTaskId,
+	onTaskSelect,
+	routinesStatus = "ready",
+	onRetryRoutines,
 }: SidebarProps) {
 	const reduced = useReducedMotion();
 	const activeTab: "chats" | "tasks" = view === "tasks" ? "tasks" : "chats";
@@ -118,7 +140,15 @@ export function Sidebar({
 							exit={reduced ? { opacity: 0 } : { opacity: 0, x: -16 }}
 							transition={{ duration: 0.2, ease: easeOutExpo }}
 						>
-							<TasksPanel />
+							<TasksPanel
+								status={routinesStatus}
+								onRetry={onRetryRoutines}
+								tasks={tasks}
+								loading={tasksLoading}
+								error={tasksError}
+								selectedTaskId={selectedTaskId}
+								onSelect={onTaskSelect ?? (() => {})}
+							/>
 						</motion.div>
 					) : (
 						<motion.div
@@ -175,23 +205,86 @@ export function Sidebar({
 }
 
 /**
- * TasksPanel — placeholder for the Tasks tab.
+ * TasksPanel — the Tasks tab content (#289).
  *
- * The real scheduled-tasks list (backed by pi-routines via the sidecar
- * bridge) lands in #289. For the P1 IA scaffold (#287) this just shows an
- * empty state so the tab is selectable and renders cleanly.
+ * While pi-routines is being installed/enabled on first visit
+ * (`useRoutinesExtension`) this shows a "setting up" loading state; on failure,
+ * an error with a retry; once ready, the real `TasksList`.
  */
-function TasksPanel() {
+function TasksPanel({
+	status,
+	onRetry,
+	tasks,
+	loading,
+	error,
+	selectedTaskId,
+	onSelect,
+}: {
+	status: RoutinesStatus;
+	onRetry?: () => void;
+	tasks: Task[];
+	loading: boolean;
+	error: string | null;
+	selectedTaskId?: string | null;
+	onSelect: (id: string) => void;
+}) {
+	if (status === "checking" || status === "installing") {
+		return <RoutinesSetup installing={status === "installing"} />;
+	}
+	if (status === "error") {
+		return <RoutinesError onRetry={onRetry} />;
+	}
+	return (
+		<TasksList
+			tasks={tasks}
+			loading={loading}
+			error={error}
+			selectedTaskId={selectedTaskId}
+			onSelect={onSelect}
+		/>
+	);
+}
+
+/** First-run loading screen while the pi-routines extension is set up. */
+function RoutinesSetup({ installing }: { installing: boolean }) {
 	return (
 		<div className="flex h-full flex-col items-center justify-center px-6 text-center">
 			<div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+				<div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+			</div>
+			<p className="text-sm font-medium text-sidebar-foreground">
+				{installing ? "Setting up Tasks…" : "Checking Tasks…"}
+			</p>
+			<p className="mt-1 text-[11px] leading-relaxed text-sidebar-foreground/50">
+				{installing
+					? "Installing the scheduler extension so the agent can run tasks on a schedule. This only happens once."
+					: "Getting the Tasks scheduler ready."}
+			</p>
+		</div>
+	);
+}
+
+/** Shown if pi-routines install/enable failed. */
+function RoutinesError({ onRetry }: { onRetry?: () => void }) {
+	return (
+		<div className="flex h-full flex-col items-center justify-center px-6 text-center">
+			<div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
 				<ListChecks className="h-5 w-5" />
 			</div>
-			<p className="text-sm font-medium text-sidebar-foreground">No tasks yet</p>
+			<p className="text-sm font-medium text-sidebar-foreground">Couldn’t set up Tasks</p>
 			<p className="mt-1 text-[11px] leading-relaxed text-sidebar-foreground/50">
-				Ask in a Cowork chat to schedule a task — for example, “every weekday at 9am summarize
-				my unread email.” Scheduled tasks will show up here.
+				The scheduler extension (pi-routines) couldn’t be installed. You can also add it from
+				Settings → Extensions.
 			</p>
+			{onRetry && (
+				<button
+					type="button"
+					onClick={onRetry}
+					className="mt-3 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
+				>
+					Try again
+				</button>
+			)}
 		</div>
 	);
 }

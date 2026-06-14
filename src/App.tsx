@@ -8,6 +8,7 @@ import { RemoteConnectionBar } from "@/components/RemoteConnectionBar";
 import { SettingsPage } from "@/components/SettingsPage";
 import { ShareExport } from "@/components/ShareExport";
 import { Sidebar } from "@/components/Sidebar";
+import { TaskDetailPage } from "@/components/TaskDetailPage";
 import { SplashScreen } from "@/components/SplashScreen";
 import { TelemetryConsentDialog } from "@/components/TelemetryConsentDialog";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -17,6 +18,8 @@ import { useUpdate } from "@/contexts/UpdateProvider";
 import { useAuth } from "@/hooks/useAuth";
 import { usePiStream } from "@/hooks/usePiStream";
 import { useProviders } from "@/hooks/useProviders";
+import { useRoutinesExtension } from "@/hooks/useRoutinesExtension";
+import { useTasks } from "@/hooks/useTasks";
 import { useTelemetry } from "@/hooks/useTelemetry";
 import {
 	BUILTIN_COMMANDS,
@@ -93,6 +96,32 @@ function App() {
 	// modal even without stored credentials.
 	const [skipOnboarding, setSkipOnboarding] = useState(false);
 	const [sidebarView, setSidebarView] = useState("chats");
+	// Tasks tab (#289): the selected task drives the main-pane detail view, and
+	// the Tasks tab transparently installs/enables pi-routines on first visit.
+	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const tasksApi = useTasks();
+	const routines = useRoutinesExtension(sidebarView === "tasks");
+	const selectedTask = tasksApi.tasks.find((t) => t.id === selectedTaskId) ?? null;
+	const handleChangeView = useCallback((view: string) => {
+		setSidebarView(view);
+		setShowSettings(view === "settings");
+		if (view !== "tasks") setSelectedTaskId(null);
+	}, []);
+	// Shared Tasks-tab props for both the desktop + mobile Sidebar instances.
+	const tasksSidebarProps = {
+		tasks: tasksApi.tasks,
+		tasksLoading: tasksApi.loading,
+		tasksError: tasksApi.error,
+		selectedTaskId,
+		onTaskSelect: (id: string) => {
+			setSidebarView("tasks");
+			setShowSettings(false);
+			setSelectedTaskId(id);
+			setMobileMenuOpen(false);
+		},
+		routinesStatus: routines.status,
+		onRetryRoutines: routines.retry,
+	};
 	const [showSettings, setShowSettings] = useState(false);
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	// True iff at least one subscription (OAuth) provider is signed in.
@@ -834,14 +863,8 @@ function App() {
 							onRequestRename={handleRequestRename}
 							onPinSession={handlePinSession}
 							onDeepSearch={handleDeepSearch}
-							onChangeView={(view) => {
-								setSidebarView(view);
-								if (view === "settings") {
-									setShowSettings(true);
-								} else {
-									setShowSettings(false);
-								}
-							}}
+							onChangeView={handleChangeView}
+							{...tasksSidebarProps}
 						/>
 					</div>
 
@@ -886,14 +909,8 @@ function App() {
 								onRequestRename={handleRequestRename}
 								onPinSession={handlePinSession}
 								onDeepSearch={handleDeepSearch}
-								onChangeView={(view) => {
-									setSidebarView(view);
-									if (view === "settings") {
-										setShowSettings(true);
-									} else {
-										setShowSettings(false);
-									}
-								}}
+								onChangeView={handleChangeView}
+								{...tasksSidebarProps}
 							/>
 						</div>
 					</div>
@@ -945,7 +962,9 @@ function App() {
 										? "settings"
 										: loadingSession
 											? "loading"
-											: "chat"
+											: sidebarView === "tasks"
+												? "tasks"
+												: "chat"
 						}
 						className="flex-1 flex flex-col min-h-0 animate-fade-in"
 					>
@@ -978,6 +997,18 @@ function App() {
 								<div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
 								<div className="text-sm text-muted-foreground">Loading session...</div>
 							</div>
+						) : sidebarView === "tasks" ? (
+							<TaskDetailPage
+								task={selectedTask}
+								error={tasksApi.error}
+								onRunNow={tasksApi.runNow}
+								onSetEnabled={tasksApi.setEnabled}
+								onDelete={tasksApi.del}
+								onClose={() => {
+									setSelectedTaskId(null);
+									setSidebarView("chats");
+								}}
+							/>
 						) : (
 							<ChatView
 								messages={displayMessages}
@@ -1016,17 +1047,7 @@ function App() {
 
 				{/* Mobile bottom nav */}
 				{!hideChrome && (
-					<MobileBottomNav
-						view={sidebarView}
-						onChangeView={(view) => {
-							setSidebarView(view);
-							if (view === "settings") {
-								setShowSettings(true);
-							} else {
-								setShowSettings(false);
-							}
-						}}
-					/>
+					<MobileBottomNav view={sidebarView} onChangeView={handleChangeView} />
 				)}
 			</div>
 		</div>

@@ -143,13 +143,14 @@ Verified against the bundled pi in `agent-sidecar`:
    **background daemon** independent of any open window. Decide:
    - (a) routines only fire while Cowork is open (MVP, honest), or
    - (b) a headless sidecar daemon + OS autostart + notifications (full).
-2. **Version skew.** pi-routines peer `>=0.78.0`; sidecar bundles `0.74.2`. The
-   API surface used is present in 0.74.2, but we must run it and confirm no
-   newer API is referenced (e.g. task/UI hooks). May force a pi bump.
-3. **sendUserMessage → UI surfacing.** The sidecar normally drives prompts via
-   `command-queue → activeSession.prompt()`. Confirm an extension-initiated
-   `sendUserMessage` (a) reaches the active session and (b) renders in the
-   Cowork chat UI via the event-bus, including when no turn is in flight.
+2. **Version skew.** ~~pi-routines peer `>=0.78.0`; sidecar bundles `0.74.2`.~~
+   **RESOLVED by #286** — runs on 0.74.2 with 0 load errors, no newer API
+   referenced, no pi bump needed. Install needs `--legacy-peer-deps` (or the
+   extension-manager npm-pack path). See "P0 spike outcome".
+3. **sendUserMessage → UI surfacing.** **RESOLVED by #286** — routes through the
+   same `session.prompt()`/`session.subscribe()` path the sidecar already
+   forwards to the UI; fired prompt renders as a `role:"user"` bubble and the
+   agent replies, including when idle. See "P0 spike outcome".
 4. **Which session?** Routines fire into "the" session. Cowork is multi-session
    / multi-window. Decide whether a routine binds to a specific chat/project
    cwd (the lock + `.pi/scheduled_tasks.json` are per-cwd) or a global one.
@@ -162,11 +163,99 @@ Verified against the bundled pi in `agent-sidecar`:
    sidecar binaries, cf. #128) and be spawned + streamed; design its UI as a
    distinct "Loop / autonomous build" mode, separate from Routines.
 
+## P0 spike outcome (#286)
+
+_Verdict: **PASS** — a durable `* * * * *` task fires into a live pi 0.74.2
+session via `pi.sendUserMessage()`, surfaces on the `session.subscribe()` event
+stream as a `role:"user"` message (the exact event the sidecar forwards to the
+desktop UI), and the agent runs a full turn and responds. Spiked 2026-06-14 on
+branch `spike/286-pi-routines`._
+
+### How it was proven
+
+A headless harness (`agent-sidecar/spike286-harness.ts`, throwaway) mirrors the
+sidecar init exactly — `AuthStorage` → `ModelRegistry` →
+`SettingsManager.inMemory` + `setPackages(readPiPackages())` →
+`DefaultResourceLoader({ noExtensions:true, extensionFactories:[pi-routines] })`
+→ `createAgentSession` → `session.subscribe(...)` → `session.bindExtensions(...)`.
+It then writes a durable task to `<cwd>/.pi/scheduled_tasks.json` with
+`nextRunAt` 5s in the past so the scheduler's 1s poll fires it immediately (no
+minute-boundary wait). Observed event sequence on the subscribe stream:
+
+```
+[pi-routines] Acquired scheduler lock
+[pi-routines] Firing task: spike
+message_start  { role:"user", content:[{text:"[Scheduled task fired: spike]\n\nsay SPIKE OK <ISO>"}] }
+agent_start -> turn_start -> message_start -> message_update -> turn_end -> agent_end
+assistant message_end -> "SPIKE OK <ISO>"
+```
+
+### Risk #2 verdict — version skew: RESOLVED (no pi bump needed for P0/P1)
+
+- pi-routines loaded under the bundled **0.74.2** with **0 load errors** and
+  fired successfully. Its entire runtime API surface — `pi.on(session_start/
+  session_shutdown)`, `pi.registerTool`, `pi.registerCommand`,
+  `pi.sendUserMessage`, `ctx.cwd`, `ctx.ui.notify` — is present in 0.74.2
+  (verified in `dist/core/extensions/types.d.ts`: `ExtensionAPI` +
+  `ExtensionContext` + `ExtensionUIContext`). Nothing newer is referenced.
+- The declared peer `>=0.78.0` is **declarative/optional**
+  (`peerDependenciesMeta.optional: true`); it is not enforced at runtime.
+- **Install-time caveat:** a direct `npm install pi-routines` into a tree that
+  pins pi `0.74.2` throws `ERESOLVE` on that peer range — install with
+  `--legacy-peer-deps`. Cowork's own `extension-manager.ts` **sidesteps this
+  entirely**: it installs via `npm pack` + tar-extract (no dependency
+  resolution against the host tree), then `npm install --production` inside the
+  isolated package dir — so the UI install path is clean.
+
+### Risk #3 verdict — sendUserMessage -> UI surfacing: RESOLVED
+
+- `pi.sendUserMessage()` -> `session.sendUserMessage()` ->
+  `session.prompt(text, { source:"extension" })` — the **same** `prompt()` path
+  the sidecar uses for normal user input (`activeSession.prompt(cmd.text)`).
+  Its events therefore flow through the identical `session.subscribe(...)`
+  forwarder the sidecar already wires to the desktop UI/event-bus.
+- The fired prompt appears as a `message_start` with `role:"user"` — it renders
+  as a normal **user bubble** in the Cowork chat, then the agent replies.
+- **Idle case confirmed:** the fire was delivered while no turn was in flight;
+  `sendUserMessage` "always triggers a turn," so it spun up a fresh
+  `agent_start`/`turn_start` and completed. No open turn is required.
+
+### Other findings / gotchas surfaced
+
+- **Install location matters for `npm:` resolution.** The sidecar resolves
+  `npm:` packages from settings via pi's `DefaultPackageManager`, whose
+  user-scope install path is `npm root -g` (the global node_modules — here the
+  mise global). The other 12 extensions live there. To make the sidecar pick
+  up `npm:pi-routines`, it must be in that global root (e.g. `npm install -g
+  pi-routines`) **or** installed via `extension-manager.ts` (npm-pack drop-in
+  under `~/.pi/agent/extensions`). Adding `npm:pi-routines` to
+  `~/.pi/agent/settings.json` `packages` is necessary but **not sufficient** if
+  the package isn't physically in the resolver's root. (`~/.pi/agent/npm/` is a
+  separate store and is **not** where user-scope `npm:` resolution looks.)
+- **`.pi/scheduled_tasks.json` is a clean read/write SoT** for durable tasks —
+  the sidecar Tasks bridge (#288) can list/delete/toggle durable tasks by
+  editing this file directly (we wrote it by hand and the chokidar watcher +
+  poll honoured it). **Session** tasks are in-memory only and are **not**
+  visible to a file-based bridge.
+- **Lock is per-cwd** (`.pi/scheduled_tasks.lock`, PID-based). The spike used a
+  dedicated stable cwd. Multi-window/multi-session (#288 risk #4) still needs a
+  per-session-vs-global binding decision.
+
+### Vendor-fork vs npm dependency — verdict
+
+**Start as a pinned npm dependency (`pi-routines@0.1.0`); fork later only if
+#288/#289 need host-facing hooks it lacks.** It runs unmodified on 0.74.2 and
+the durable-task file is a sufficient SoT for the Tasks list MVP. A vendor-fork
+becomes warranted when we need: a programmatic host API to enumerate/pause/
+run-now (it exposes only agent tools today), change events richer than
+chokidar-on-file, per-session binding, or native-notification surfacing — none
+of which 0.1.0 provides. No pi version bump is required for P0/P1.
+
 ## Proposed phasing
 
-- **P0 — Spike (S) — #286:** install pi-routines into the sidecar, create a
-  `* * * * *` durable task, confirm it fires `sendUserMessage` into a live
-  Cowork chat. Resolves risks #2 and #3. Document outcome.
+- **P0 — Spike (S) — #286:** ✅ **DONE** — durable `* * * * *` task fires
+  `sendUserMessage` into a live session and renders as a user bubble; agent
+  responds. Resolved risks #2 and #3. See "P0 spike outcome" above.
 - **P1 — IA rename (S) — #287:** “Chats” → “Cowork”, remove Templates tab +
   delete `PromptTemplates`/`data/templates.ts`, add empty **Tasks** tab
   scaffold. Update `Sidebar.tsx`, `MobileBottomNav.tsx`, `App.tsx` view state

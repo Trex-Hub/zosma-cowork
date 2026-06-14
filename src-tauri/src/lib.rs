@@ -499,6 +499,12 @@ async fn read_stdout(
                         if t == "tasks_changed" {
                             let _ = app.emit("tasks_changed", e.clone());
                         }
+                        // Task-run-completed push (#300): the sidecar emits this
+                        // when a scheduled task finishes executing so the
+                        // TaskDetailPage can live-update the runs section.
+                        if t == "task_run_completed" {
+                            let _ = app.emit("task_run_completed", e.clone());
+                        }
                     }
                     for (_, p) in pp.lock().await.iter() {
                         let _ = p.channel.send(e.clone());
@@ -1314,6 +1320,37 @@ async fn tasks_run_now(task_id: String, s: State<'_, AppState>) -> Result<Value,
         std::time::Duration::from_secs(10),
     )
     .await
+}
+
+#[tauri::command]
+async fn tasks_list_runs(
+    task_id: String,
+    limit: Option<u32>,
+    s: State<'_, AppState>,
+) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({
+            "type": "tasks_list_runs",
+            "id": "tlr",
+            "taskId": task_id,
+            "limit": limit.unwrap_or(50)
+        }),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .map(|r| r.get("runs").cloned().unwrap_or(Value::Array(vec![])))
+}
+
+#[tauri::command]
+async fn tasks_get_completed(s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_get_completed","id":"tgc"}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .map(|r| r.get("completed").cloned().unwrap_or(Value::Array(vec![])))
 }
 
 #[tauri::command]
@@ -2233,6 +2270,8 @@ pub fn run() {
             tasks_delete,
             tasks_set_enabled,
             tasks_run_now,
+            tasks_list_runs,
+            tasks_get_completed,
             install_extension,
             uninstall_extension,
             set_extension_enabled,

@@ -147,6 +147,8 @@ import {
 } from "./instructions-store.js";
 import {
 	deleteTask,
+	getCompletedTasks,
+	listRuns,
 	listTasks,
 	runTaskNow,
 	setTaskEnabled,
@@ -1588,6 +1590,137 @@ async function main() {
 		});
 		session = result.session;
 
+		// ── Wire forked pi-routines onFireCallback (#300) ─────────────────
+		// Route task fires into the Cowork session instead of the pi CLI
+		// terminal. This runs the task prompt through the active session,
+		// records the run, and emits task_run_completed when done.
+		(globalThis as Record<string, unknown>).__PI_ROUTINES_ON_FIRE = async (
+			task: {
+				id: string;
+				name: string;
+				prompt: string;
+				createdAt: string;
+				lastRunAt?: string;
+				nextRunAt?: string;
+				recurring: boolean;
+				maxAgeDays: number;
+				sessionId?: string;
+			},
+			store: {
+				updateRun(taskId: string, runId: string, updates: Record<string, unknown>): void;
+			},
+			runId: string,
+		): Promise<void> => {
+			const activeSession = session;
+			if (!activeSession) return;
+
+			store.updateRun(task.id, runId, { status: "running" });
+
+			// Capture the full conversation: thinking, text, tool calls & results
+			const conversation: Array<{
+				type: "thinking" | "text" | "tool_call" | "tool_result";
+				content?: string;
+				toolName?: string;
+				toolArgs?: Record<string, unknown>;
+				toolResult?: string;
+				toolError?: boolean;
+			}> = [];
+
+			const unsub = activeSession.subscribe(
+				(event: Record<string, unknown>) => {
+					if (event.type === "message_update") {
+						const ame = event.assistantMessageEvent as Record<string, unknown> | undefined;
+						if (!ame) return;
+						if (ame.type === "text_delta") {
+							const last = conversation[conversation.length - 1];
+							if (last?.type === "text") {
+								last.content = (last.content ?? "") + (ame.delta as string ?? "");
+							} else {
+								conversation.push({ type: "text", content: ame.delta as string ?? "" });
+							}
+						} else if (ame.type === "thinking_delta") {
+							const last = conversation[conversation.length - 1];
+							if (last?.type === "thinking") {
+								last.content = (last.content ?? "") + (ame.delta as string ?? "");
+							} else {
+								conversation.push({ type: "thinking", content: ame.delta as string ?? "" });
+							}
+						} else if (ame.type === "toolcall_end") {
+							const tc = (ame as Record<string, unknown>).toolCall as Record<string, unknown> | undefined;
+							if (tc) {
+								conversation.push({
+									type: "tool_call",
+									toolName: tc.name as string ?? "unknown",
+									toolArgs: tc.arguments as Record<string, unknown> ?? {},
+								});
+							}
+						}
+					} else if (
+						event.type === "tool_execution_end"
+					) {
+						const te = event as Record<string, unknown>;
+						const result = te.result as Record<string, unknown> | undefined;
+						const contentArr = result?.content as Array<Record<string, unknown>> | undefined;
+						const text = contentArr?.map((c) => c.text as string ?? "").join("") ?? "";
+						conversation.push({
+							type: "tool_result",
+							toolName: te.toolName as string ?? "unknown",
+							toolResult: text,
+							toolError: (te.isError as boolean) ?? false,
+						});
+					}
+				},
+			);
+
+			try {
+				await activeSession.prompt(task.prompt);
+				unsub();
+				const responseText = conversation
+					.filter((c) => c.type === "text")
+					.map((c) => c.content ?? "")
+					.join("");
+				store.updateRun(task.id, runId, {
+					status: "completed",
+					completedAt: new Date().toISOString(),
+					response: responseText,
+					conversation,
+				});
+				send({
+					type: "event",
+					event: { type: "task_run_completed", taskId: task.id, runId },
+				});
+			} catch (err) {
+				unsub();
+				const responseText = conversation
+					.filter((c) => c.type === "text")
+					.map((c) => c.content ?? "")
+					.join("");
+				store.updateRun(task.id, runId, {
+					status: "failed",
+					completedAt: new Date().toISOString(),
+					response: responseText,
+					conversation,
+				});
+				log(
+					"task fire failed for %s (%s): %s",
+					task.id,
+					task.name,
+					err instanceof Error ? err.message : String(err),
+				);
+			}
+		};
+
+		// ── Wire forked pi-routines with Cowork-specific lock (#300) ─────
+		// Use a separate lock file so Cowork can fire tasks independently
+		// of the pi CLI. The task file stays shared (single source of truth
+		// for what's scheduled), but Cowork gets its own lock so it doesn't
+		// block on the pi CLI's scheduler.
+		(globalThis as Record<string, unknown>).__PI_ROUTINES_LOCK_FILE = join(
+			workspaceCwd,
+			".pi",
+			"cowork_tasks.lock",
+		);
+
 		// Subscribe to all agent events and forward to stdout
 		session.subscribe((event) => {
 			send({ type: "event", event });
@@ -2907,6 +3040,23 @@ async function main() {
 				case "tasks_run_now": {
 					const ran = runTaskNow(cmd.cwd ?? workspaceCwd, cmd.taskId);
 					send({ type: "result", id: cmd.id, data: { ran } });
+					break;
+				}
+
+				// ── Tasks bridge: run history (#300) ────────────────────────
+				case "tasks_list_runs": {
+					const runs = listRuns(
+						cmd.cwd ?? workspaceCwd,
+						cmd.taskId,
+						cmd.limit ?? 50,
+					);
+					send({ type: "result", id: cmd.id, data: { runs } });
+					break;
+				}
+
+				case "tasks_get_completed": {
+					const completed = getCompletedTasks(cmd.cwd ?? workspaceCwd);
+					send({ type: "result", id: cmd.id, data: { completed } });
 					break;
 				}
 

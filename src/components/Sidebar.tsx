@@ -1,7 +1,7 @@
 import { ListChecks, MessageSquare, Settings } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { RoutinesStatus } from "@/hooks/useRoutinesExtension";
-import type { Task } from "@/types";
+import type { CompletedTask, Task } from "@/types";
 import { ConversationSearch, type DeepSearchMatch } from "./ConversationSearch";
 import { TasksList } from "./TasksList";
 
@@ -44,6 +44,9 @@ interface SidebarProps {
 	/** Currently selected task (drives the main-pane detail). */
 	selectedTaskId?: string | null;
 	onTaskSelect?: (id: string) => void;
+	/** #300: Completed (non-recurring) tasks. */
+	completedTasks?: CompletedTask[];
+	completedTasksLoading?: boolean;
 	/** pi-routines install/enable lifecycle for the Tasks tab. */
 	routinesStatus?: RoutinesStatus;
 	onRetryRoutines?: () => void;
@@ -72,6 +75,8 @@ export function Sidebar({
 	tasks = [],
 	tasksLoading = false,
 	tasksError = null,
+	completedTasks = [],
+	completedTasksLoading = false,
 	selectedTaskId,
 	onTaskSelect,
 	routinesStatus = "ready",
@@ -146,6 +151,8 @@ export function Sidebar({
 								tasks={tasks}
 								loading={tasksLoading}
 								error={tasksError}
+								completedTasks={completedTasks}
+								completedLoading={completedTasksLoading}
 								selectedTaskId={selectedTaskId}
 								onSelect={onTaskSelect ?? (() => {})}
 							/>
@@ -217,6 +224,8 @@ function TasksPanel({
 	tasks,
 	loading,
 	error,
+	completedTasks,
+	completedLoading,
 	selectedTaskId,
 	onSelect,
 }: {
@@ -225,6 +234,8 @@ function TasksPanel({
 	tasks: Task[];
 	loading: boolean;
 	error: string | null;
+	completedTasks?: CompletedTask[];
+	completedLoading?: boolean;
 	selectedTaskId?: string | null;
 	onSelect: (id: string) => void;
 }) {
@@ -239,6 +250,8 @@ function TasksPanel({
 			tasks={tasks}
 			loading={loading}
 			error={error}
+			completedTasks={completedTasks}
+			completedLoading={completedLoading}
 			selectedTaskId={selectedTaskId}
 			onSelect={onSelect}
 		/>

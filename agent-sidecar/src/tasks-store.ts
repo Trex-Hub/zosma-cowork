@@ -4,14 +4,19 @@
  * The Tasks UI must read/write scheduled tasks WITHOUT round-tripping the LLM.
  * pi-routines exposes `cron_create`/`cron_delete`/`cron_list` only as *agent
  * tools* (LLM-facing) and has no `set_enabled`/`run_now` tool at all, so this
- * module talks to pi-routines' on-disk source of truth directly:
+ * module talks to pi-routines' on-disk source of truth directly.
  *
- *   <cwd>/.pi/scheduled_tasks.json    ← pi-routines' durable task file.
+ * ── V3 (#300): Shared task file ─────────────────────────────────────────────
+ * The pi CLI and Cowork GUI share the same task file
+ * (.pi/scheduled_tasks.json) and lock (.pi/scheduled_tasks.lock).
+ * One source of truth — tasks created via either interface appear in both.
  *
- * pi-routines hot-reloads that file via chokidar (its 1s scheduler poll fires
- * any task whose `nextRunAt` is in the past), so writing the file by hand is a
- * fully supported way to drive it — this is exactly what the #286 spike harness
- * proved.
+ *   .pi/scheduled_tasks.json           ← shared durable tasks
+ *   .pi/scheduled_tasks_disabled.json   ← bridge-owned paused tasks
+ *   .pi/task_runs/<taskId>.jsonl        ← run history (recorded by the fork)
+ *
+ * Run recording is done by the forked pi-routines inside the sidecar's process
+ * when a task fires via `onFireCallback`. This bridge reads those run records.
  *
  * ── enabled / paused semantics ──────────────────────────────────────────────
  * pi-routines has NO `enabled`/`paused` concept: every task in `tasks[]` with a
@@ -20,24 +25,19 @@
  * only persists `{ version, tasks }` — any extra top-level key we add (e.g. a
  * `disabled` array) is silently wiped the next time *any* task fires.
  *
- * So "pause" can't live inside `scheduled_tasks.json`. Instead the bridge keeps
- * paused tasks in a SEPARATE, bridge-owned file pi-routines never touches:
+ * So "pause" can't live inside the task file. Instead the bridge keeps paused
+ * tasks in a SEPARATE, bridge-owned file pi-routines never touches.
  *
- *   <cwd>/.pi/scheduled_tasks_disabled.json
- *
- * `set_enabled(false)` MOVES a task out of `scheduled_tasks.json` into the
- * disabled file (so pi-routines stops seeing it); `set_enabled(true)` moves it
- * back (stripping `nextRunAt` so pi-routines recomputes a fresh forward run).
- * This survives pi-routines' file rewrites because the two files are disjoint.
- *
- * Session (in-memory) tasks live inside pi-routines' process and aren't on disk,
- * so they're out of scope for this MVP bridge (durable tasks only).
+ * `set_enabled(false)` MOVES a task out of the active file into the disabled
+ * file (so pi-routines stops seeing it); `set_enabled(true)` moves it back
+ * (stripping `nextRunAt` so pi-routines recomputes a fresh forward run).
  */
 
 import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	type FSWatcher,
 	watch,
 	writeFileSync,
@@ -70,12 +70,27 @@ export interface BridgeTask extends ScheduledTask {
 	enabled: boolean;
 }
 
+/**
+ * A run record for a scheduled task. Stored in
+ * `.pi/task_runs/<taskId>.jsonl` by the forked pi-routines.
+ */
+export interface TaskRun {
+	runId: string;
+	taskId: string;
+	prompt: string;
+	response?: string;
+	status: "pending" | "running" | "completed" | "failed";
+	startedAt: string;
+	completedAt?: string;
+	sessionId?: string;
+}
+
 interface DurableTaskFile {
 	version: 1;
 	tasks: ScheduledTask[];
 }
 
-/** pi-routines' durable task file: `<cwd>/.pi/scheduled_tasks.json`. */
+/** Default pi-routines task file: `<cwd>/.pi/scheduled_tasks.json`. Shared with pi CLI. */
 export function tasksFilePath(cwd: string): string {
 	return join(cwd, ".pi", "scheduled_tasks.json");
 }
@@ -83,6 +98,11 @@ export function tasksFilePath(cwd: string): string {
 /** Bridge-owned paused-task file: `<cwd>/.pi/scheduled_tasks_disabled.json`. */
 export function disabledTasksFilePath(cwd: string): string {
 	return join(cwd, ".pi", "scheduled_tasks_disabled.json");
+}
+
+/** Run-records directory: `<cwd>/.pi/task_runs/`. */
+export function taskRunsDir(cwd: string): string {
+	return join(cwd, ".pi", "task_runs");
 }
 
 /**
@@ -109,9 +129,9 @@ function writeTaskFile(path: string, data: DurableTaskFile): void {
 }
 
 /**
- * List all durable tasks for `cwd`: enabled tasks (from pi-routines'
- * `scheduled_tasks.json`) annotated `enabled: true`, followed by paused tasks
- * (from the bridge's disabled file) annotated `enabled: false`.
+ * List all durable tasks for `cwd`: enabled tasks (from the Cowork-private
+ * task file) annotated `enabled: true`, followed by paused tasks (from the
+ * bridge's disabled file) annotated `enabled: false`.
  */
 export function listTasks(cwd: string): BridgeTask[] {
 	const active = readTaskFile(tasksFilePath(cwd)).tasks.map((t) => ({
@@ -130,12 +150,12 @@ export function listTasks(cwd: string): BridgeTask[] {
  * was removed.
  */
 export function deleteTask(cwd: string, taskId: string): boolean {
-	for (const path of [tasksFilePath(cwd), disabledTasksFilePath(cwd)]) {
-		const file = readTaskFile(path);
+	for (const filePath of [tasksFilePath(cwd), disabledTasksFilePath(cwd)]) {
+		const file = readTaskFile(filePath);
 		const before = file.tasks.length;
 		file.tasks = file.tasks.filter((t) => t.id !== taskId);
 		if (file.tasks.length < before) {
-			writeTaskFile(path, file);
+			writeTaskFile(filePath, file);
 			return true;
 		}
 	}
@@ -214,9 +234,91 @@ export function runTaskNow(cwd: string, taskId: string): boolean {
 		return false;
 	}
 
-	task.nextRunAt = new Date(Date.now() - 5000).toISOString();
+	// Set nextRunAt far enough in the past to overcome the jitter delay.
+	// Recurring tasks get up to 15min of forward jitter, so we punch
+	// through that by going 16 minutes back. This guarantees the task
+	// fires on the scheduler's very next 1s tick.
+	task.nextRunAt = new Date(Date.now() - 60_000 * 16).toISOString();
 	writeTaskFile(activePath, file);
 	return true;
+}
+
+// ── Run recording (reads the jsonl files written by the forked pi-routines) ──
+
+/**
+ * List all runs for a specific task, newest first.
+ * Reads from `.pi/task_runs/<taskId>.jsonl`.
+ */
+export function listRuns(cwd: string, taskId: string, limit = 50): TaskRun[] {
+	const runFile = join(taskRunsDir(cwd), `${taskId}.jsonl`);
+	if (!existsSync(runFile)) return [];
+
+	const lines = readFileSync(runFile, "utf-8").split("\n").filter(Boolean);
+	const runs: TaskRun[] = [];
+	for (const line of lines) {
+		try {
+			runs.push(JSON.parse(line) as TaskRun);
+		} catch {
+			// Skip malformed lines
+		}
+	}
+	// Newest first
+	runs.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+	return runs.slice(0, limit);
+}
+
+/**
+ * Get completed (non-recurring) tasks — ones that have fired and are no longer
+ * in the active tasks list. Reconstructed from run records.
+ *
+ * Returns data suitable for the "Completed" section in the Tasks UI.
+ */
+export function getCompletedTasks(
+	cwd: string,
+): { taskId: string; name: string; lastRun: TaskRun }[] {
+	const dir = taskRunsDir(cwd);
+	if (!existsSync(dir)) return [];
+
+	const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+	const completed: Map<string, { taskId: string; name: string; lastRun: TaskRun }> = new Map();
+
+	for (const file of files) {
+		const taskId = file.replace(".jsonl", "");
+		// Skip active tasks (still in the tasks or disabled file)
+		if (
+			readTaskFile(tasksFilePath(cwd)).tasks.some((t) => t.id === taskId) ||
+			readTaskFile(disabledTasksFilePath(cwd)).tasks.some((t) => t.id === taskId)
+		) {
+			continue;
+		}
+
+		const runFile = join(dir, file);
+		const lines = readFileSync(runFile, "utf-8").split("\n").filter(Boolean);
+		if (lines.length === 0) continue;
+
+		// Last line (most recent) is the last run
+		let lastRun: TaskRun | null = null;
+		for (const line of lines) {
+			try {
+				const run = JSON.parse(line) as TaskRun;
+				if (run.status === "completed" || run.status === "failed") {
+					lastRun = run;
+				}
+			} catch {
+				// skip
+			}
+		}
+
+		if (!lastRun) continue;
+
+		// Try to find the name from the last active task record or use prompt
+		const name = lastRun.prompt.slice(0, 60);
+		completed.set(taskId, { taskId, name, lastRun });
+	}
+
+	return Array.from(completed.values()).sort(
+		(a, b) => new Date(b.lastRun.startedAt).getTime() - new Date(a.lastRun.startedAt).getTime(),
+	);
 }
 
 /** Filenames (under `.pi/`) whose changes should push a `tasks_changed`. */
@@ -230,7 +332,7 @@ const WATCHED_FILES = new Set([
  *
  * Uses Node's built-in `fs.watch` rather than chokidar (which pi-routines pulls
  * in but isn't resolvable from the Cowork sidecar's own package). We watch the
- * `.pi` DIRECTORY, not the file, so a not-yet-created `scheduled_tasks.json`
+ * `.pi` DIRECTORY, not the file, so a not-yet-created `cowork_scheduled_tasks.json`
  * still triggers once pi-routines (or the bridge) writes it. Returns a closer.
  */
 export function watchTaskFiles(

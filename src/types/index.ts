@@ -131,4 +131,40 @@ export interface Task {
 	enabled: boolean;
 }
 
+/**
+ * A run record for a scheduled task (#300).
+ * Stored in `.pi/task_runs/<taskId>.jsonl` by the forked pi-routines.
+ */
+/** A single entry in a task-run conversation: thinking, text, tool call or result. */
+export interface ConversationEntry {
+	type: "thinking" | "text" | "tool_call" | "tool_result";
+	content?: string;
+	toolName?: string;
+	toolArgs?: Record<string, unknown>;
+	toolResult?: string;
+	toolError?: boolean;
+}
+
+export interface TaskRun {
+	runId: string;
+	taskId: string;
+	prompt: string;
+	response?: string;
+	status: "pending" | "running" | "completed" | "failed";
+	startedAt: string;
+	completedAt?: string;
+	sessionId?: string;
+	/** Full conversation: thinking, tool calls & results, and text responses (#300). */
+	conversation?: ConversationEntry[];
+}
+
+/**
+ * A completed (non-recurring) task, reconstructed from run records (#300).
+ */
+export interface CompletedTask {
+	taskId: string;
+	name: string;
+	lastRun: TaskRun;
+}
+
 export * from "./pi-events";

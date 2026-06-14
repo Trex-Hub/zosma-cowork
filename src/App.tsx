@@ -8,6 +8,7 @@ import { RemoteConnectionBar } from "@/components/RemoteConnectionBar";
 import { SettingsPage } from "@/components/SettingsPage";
 import { ShareExport } from "@/components/ShareExport";
 import { Sidebar } from "@/components/Sidebar";
+import { RunHistory } from "@/components/RunHistory";
 import { TaskDetailPage } from "@/components/TaskDetailPage";
 import { SplashScreen } from "@/components/SplashScreen";
 import { TelemetryConsentDialog } from "@/components/TelemetryConsentDialog";
@@ -100,7 +101,9 @@ function App() {
 	// the Tasks tab transparently installs/enables pi-routines on first visit.
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const tasksApi = useTasks();
-	const routines = useRoutinesExtension(sidebarView === "tasks");
+	const routines = useRoutinesExtension(
+		sidebarView === "tasks" || sidebarView === "history",
+	);
 	const selectedTask = tasksApi.tasks.find((t) => t.id === selectedTaskId) ?? null;
 	const handleChangeView = useCallback((view: string) => {
 		setSidebarView(view);
@@ -112,6 +115,8 @@ function App() {
 		tasks: tasksApi.tasks,
 		tasksLoading: tasksApi.loading,
 		tasksError: tasksApi.error,
+		completedTasks: tasksApi.completedTasks,
+		completedTasksLoading: tasksApi.completedLoading,
 		selectedTaskId,
 		onTaskSelect: (id: string) => {
 			setSidebarView("tasks");
@@ -747,7 +752,7 @@ function App() {
 			dispatch({ type: "RESET" });
 			try {
 				const result = await invoke("load_session", { sessionFile: file });
-				const data = result as { messages: ChatMessage[]; cwd?: string };
+				const data = result as { messages: ChatMessage[]; model?: string; provider?: string; cwd?: string };
 				if (data.messages && data.messages.length > 0) {
 					setLoadedSessionMessages(data.messages);
 				}
@@ -755,6 +760,24 @@ function App() {
 				// rebinds to the session's saved folder, or home for legacy chats).
 				if (typeof data.cwd === "string") {
 					setWorkspaceCwd(data.cwd);
+				}
+				// Restore the model that was used in this conversation, so the
+				// user doesn't have to manually re-select it before sending.
+				if (data.model && data.provider) {
+					const key = modelKey(data.provider, data.model);
+					if (findModel(models, key)) {
+						setActiveModelId(key);
+						invoke("set_active_model", { model: data.model, provider: data.provider }).catch(() => {});
+					} else {
+						// Saved model isn't available (e.g. different provider config on
+						// this device). Leave the default model active; the user can
+						// pick a new one from the dropdown.
+						console.warn(
+							"[cowork] Saved model %s/%s not found in available models",
+							data.provider,
+							data.model,
+						);
+					}
 				}
 				// #268 — the sidecar rebinds to the loaded session; pull its
 				// token/cost/context totals so the footer reflects history.
@@ -997,8 +1020,8 @@ function App() {
 								<div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
 								<div className="text-sm text-muted-foreground">Loading session...</div>
 							</div>
-						) : sidebarView === "tasks" ? (
-							<TaskDetailPage
+						) : sidebarView === "tasks" && selectedTask ? (
+						<TaskDetailPage
 								task={selectedTask}
 								error={tasksApi.error}
 								onRunNow={tasksApi.runNow}
@@ -1007,6 +1030,17 @@ function App() {
 								onClose={() => {
 									setSelectedTaskId(null);
 									setSidebarView("chats");
+								}}
+								listRuns={tasksApi.listRuns}
+						/>
+						) : sidebarView === "tasks" ? (
+							<RunHistory
+								tasks={tasksApi.tasks}
+								completedTasks={tasksApi.completedTasks}
+								completedLoading={tasksApi.completedLoading}
+								listRuns={tasksApi.listRuns}
+								onJumpToTask={(id) => {
+									setSelectedTaskId(id);
 								}}
 							/>
 						) : (

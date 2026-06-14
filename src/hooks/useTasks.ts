@@ -1,15 +1,18 @@
 /**
- * useTasks — React hook for the pi-routines Tasks bridge (#288).
+ * useTasks — React hook for the pi-routines Tasks bridge (#288, #300).
  *
  * Bridges the sidecar's `tasks_*` commands (which read/write the active cwd's
- * `.pi/scheduled_tasks.json` directly, no LLM round-trip) to React state, and
- * refetches live on the `tasks_changed` push event the sidecar emits when the
- * file changes (a task fires, or the bridge edits it).
+ * `.pi/cowork_scheduled_tasks.json` directly, no LLM round-trip) to React
+ * state, and refetches live on the `tasks_changed` push event the sidecar
+ * emits when the file changes (a task fires, or the bridge edits it).
  *
- * No UI yet — that's #289. This hook + its test are the data layer it builds on.
+ * #300 additions:
+ * - `listRuns(taskId)` — fetches run history for a specific task
+ * - `getCompletedTasks()` — fetches completed (non-recurring) tasks
+ * - Listens to `task_run_completed` events for live updates
  */
 
-import type { Task } from "@/types";
+import type { CompletedTask, Task, TaskRun } from "@/types";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
@@ -34,12 +37,24 @@ interface UseTasksReturn {
 	runNow: (taskId: string) => Promise<void>;
 	/** Clear the current error. */
 	clearError: () => void;
+
+	// #300: Run history
+	/** Fetch all runs for a specific task, newest first. */
+	listRuns: (taskId: string, limit?: number) => Promise<TaskRun[]>;
+	/** Fetch completed (non-recurring) tasks. */
+	getCompletedTasks: () => Promise<CompletedTask[]>;
+	/** Completed tasks state (auto-refreshed on events). */
+	completedTasks: CompletedTask[];
+	/** Loading state for completed tasks. */
+	completedLoading: boolean;
 }
 
 export function useTasks(): UseTasksReturn {
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([]);
+	const [completedLoading, setCompletedLoading] = useState(false);
 
 	const refresh = useCallback(async () => {
 		setLoading(true);
@@ -59,9 +74,27 @@ export function useTasks(): UseTasksReturn {
 		}
 	}, []);
 
+	const refreshCompleted = useCallback(async () => {
+		setCompletedLoading(true);
+		try {
+			const result = await retryOnClosed(() =>
+				invoke<{ completed?: CompletedTask[] } | CompletedTask[]>("tasks_get_completed"),
+			);
+			const list = Array.isArray(result)
+				? result
+				: (result as { completed?: CompletedTask[] }).completed || [];
+			setCompletedTasks(list);
+		} catch {
+			// Silently ignore — completed tasks are non-critical
+		} finally {
+			setCompletedLoading(false);
+		}
+	}, []);
+
 	useEffect(() => {
 		refresh();
-	}, [refresh]);
+		refreshCompleted();
+	}, [refresh, refreshCompleted]);
 
 	// Live updates: the sidecar emits `tasks_changed` whenever the task file
 	// changes (pi-routines fires a task, or the bridge mutates it). Refetch.
@@ -79,6 +112,23 @@ export function useTasks(): UseTasksReturn {
 			unlisten?.();
 		};
 	}, [refresh]);
+
+	// Live updates for run completion (#300): when a task finishes executing,
+	// refresh both the task list and the completed tasks list.
+	useEffect(() => {
+		let unlisten: (() => void) | undefined;
+		let mounted = true;
+		listen("task_run_completed", () => {
+			refreshCompleted();
+		}).then((fn) => {
+			if (mounted) unlisten = fn;
+			else fn();
+		});
+		return () => {
+			mounted = false;
+			unlisten?.();
+		};
+	}, [refreshCompleted]);
 
 	const del = useCallback(
 		async (taskId: string) => {
@@ -115,6 +165,35 @@ export function useTasks(): UseTasksReturn {
 		}
 	}, []);
 
+	const listRuns = useCallback(
+		async (taskId: string, limit = 50): Promise<TaskRun[]> => {
+			try {
+				const result = await retryOnClosed(() =>
+					invoke<{ runs?: TaskRun[] } | TaskRun[]>("tasks_list_runs", { taskId, limit }),
+				);
+				return Array.isArray(result)
+					? result
+					: (result as { runs?: TaskRun[] }).runs || [];
+			} catch {
+				return [];
+			}
+		},
+		[],
+	);
+
+	const getCompletedTasks = useCallback(async (): Promise<CompletedTask[]> => {
+		try {
+			const result = await retryOnClosed(() =>
+				invoke<{ completed?: CompletedTask[] } | CompletedTask[]>("tasks_get_completed"),
+			);
+			return Array.isArray(result)
+				? result
+				: (result as { completed?: CompletedTask[] }).completed || [];
+		} catch {
+			return [];
+		}
+	}, []);
+
 	const clearError = useCallback(() => setError(null), []);
 
 	return {
@@ -126,5 +205,9 @@ export function useTasks(): UseTasksReturn {
 		setEnabled,
 		runNow,
 		clearError,
+		listRuns,
+		getCompletedTasks,
+		completedTasks,
+		completedLoading,
 	};
 }

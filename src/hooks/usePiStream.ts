@@ -525,9 +525,13 @@ export function usePiStream() {
 									break;
 								}
 								case "error":
+									// Forward the actual error reason or message, not
+									// a generic placeholder. Provider 400/500 errors
+									// carry the API response in `reason` or `message`,
+									// not just "aborted".
 									dispatch({
 										type: "STREAM_ERROR",
-										error: ame.reason === "aborted" ? "Aborted" : "Error",
+										error: (ame as unknown as { message?: string }).message || ame.reason || "API error",
 									});
 									break;
 							}

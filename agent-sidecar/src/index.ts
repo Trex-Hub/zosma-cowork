@@ -146,6 +146,16 @@ import {
 	loadInstructions,
 	saveInstructions,
 } from "./instructions-store.js";
+import {
+	deleteTask,
+	getCompletedTasks,
+	listRuns,
+	listTasks,
+	runTaskNow,
+	setTaskEnabled,
+	watchTaskFiles,
+} from "./tasks-store.js";
+import { runTaskFire } from "./task-fire.js";
 // Vendored pi-anthropic-messages bridge (see scripts/prebuild.mjs). Without
 // this loaded as an extension, Claude Pro/Max OAuth requests are
 // fingerprinted by Anthropic as a "third-party app" and rejected with a
@@ -156,6 +166,10 @@ import piAnthropicMessages from "./vendor/anthropic-messages/extensions/index.js
 // Zosma Office Document Generation extension — registers 8 OfficeCLI tools.
 import zosmaOfficeDocs from "./office-docs/extension.js";
 import zosmaGoogleCalendar from "./google-calendar/extension.js";
+// Vendored forked pi-routines scheduler (#300). Bundled into the sidecar so it
+// works on any machine (no absolute ~/code path). Loaded ONLY by Cowork; the
+// pi CLI never sees it. Source of truth: github.com/zosmaai/pi-routines.
+import piRoutines from "./vendor/pi-routines/src/index.js";
 import {
 	defaultGooglePaths,
 	disconnectGoogle,
@@ -500,6 +514,51 @@ interface ListExtensionsCommand {
 	id: string;
 }
 
+// ── Tasks bridge (pi-routines scheduled tasks) ──────────────────────────────
+// All four read/write `<cwd>/.pi/scheduled_tasks.json` directly (see
+// tasks-store.ts). `cwd` defaults to the active session's workspaceCwd.
+interface TasksListCommand {
+	type: "tasks_list";
+	id: string;
+	cwd?: string;
+}
+
+interface TasksDeleteCommand {
+	type: "tasks_delete";
+	id: string;
+	taskId: string;
+	cwd?: string;
+}
+
+interface TasksSetEnabledCommand {
+	type: "tasks_set_enabled";
+	id: string;
+	taskId: string;
+	enabled: boolean;
+	cwd?: string;
+}
+
+interface TasksRunNowCommand {
+	type: "tasks_run_now";
+	id: string;
+	taskId: string;
+	cwd?: string;
+}
+
+interface TasksListRunsCommand {
+	type: "tasks_list_runs";
+	id: string;
+	taskId: string;
+	cwd?: string;
+	limit?: number;
+}
+
+interface TasksGetCompletedCommand {
+	type: "tasks_get_completed";
+	id: string;
+	cwd?: string;
+}
+
 interface InstallExtensionCommand {
 	type: "install_extension";
 	id: string;
@@ -642,6 +701,12 @@ type Command =
 	| GetInstructionsCommand
 	| SaveInstructionsCommand
 	| ListExtensionsCommand
+	| TasksListCommand
+	| TasksDeleteCommand
+	| TasksSetEnabledCommand
+	| TasksRunNowCommand
+	| TasksListRunsCommand
+	| TasksGetCompletedCommand
 	| InstallExtensionCommand
 	| UninstallExtensionCommand
 	| SetExtensionEnabledCommand
@@ -1308,6 +1373,20 @@ async function main() {
 	// arbitrary cwd the user never chose.
 	let workspaceCwd = resolveWorkspace();
 	let activePromptId: string | null = null;
+
+	// Tasks-bridge file watcher: pushes a `tasks_changed` event whenever the
+	// active cwd's .pi/scheduled_tasks.json (or the bridge's disabled file)
+	// changes — pi-routines edits it when tasks fire, and the bridge edits it on
+	// delete/enable/run-now — so the Tasks list live-updates. Re-targeted on
+	// every workspaceCwd change via retargetTasksWatcher().
+	let closeTasksWatcher: (() => void) | null = null;
+	function retargetTasksWatcher(cwd: string) {
+		closeTasksWatcher?.();
+		closeTasksWatcher = watchTaskFiles(cwd, () => {
+			send({ type: "event", event: { type: "tasks_changed" } });
+		});
+	}
+	retargetTasksWatcher(workspaceCwd);
 	// Serializes prompt execution WITHOUT blocking the stdin read loop, so an
 	// `abort` (and the next prompt) stay readable mid-generation. See
 	// runPromptTask + the "prompt" command handler, and prompt-scheduler.ts.
@@ -1347,10 +1426,21 @@ async function main() {
 	 */
 	async function buildResourceLoader(
 		cwd: string,
+		opts: { includeRoutines?: boolean; includePersona?: boolean } = {},
 	): Promise<DefaultResourceLoader> {
 		if (!settingsManager) {
 			throw new Error("buildResourceLoader: settingsManager not initialized");
 		}
+		// Per-run task sessions (#300) must NOT load pi-routines, otherwise each
+		// fire would spawn a second scheduler inside the isolated session →
+		// recursive fires. Only Cowork's main chat session runs the scheduler.
+		const includeRoutines = opts.includeRoutines ?? true;
+		// Per-run task sessions must ALSO skip the user's chat persona
+		// (INSTRUCTIONS.md). A scheduled task is a self-contained job: its prompt
+		// is the sole instruction. Injecting the chat persona (e.g. "you are my
+		// CTO, build pi-llm-wiki") makes a "drink water" reminder hijack into
+		// unrelated project work (#300).
+		const includePersona = opts.includePersona ?? true;
 		const piResourceDir = piAgentDir();
 		ensureDir(piResourceDir);
 
@@ -1383,6 +1473,12 @@ async function main() {
 			);
 		}
 
+		// The forked pi-routines is injected as a vendored extension factory
+		// (#300) so only Cowork loads it — never the pi CLI, since it's
+		// deliberately absent from settings.json packages. Vendored (not an
+		// absolute disk path) so the bundle is self-contained on every machine.
+		const piRoutinesFactory = piRoutines;
+
 		const loader = new DefaultResourceLoader({
 			cwd,
 			// Discover shared pi resources from ~/.pi/agent (not the cowork dir).
@@ -1391,7 +1487,8 @@ async function main() {
 			// We load ALL extensions ourselves (vendored inline + pi's disk/npm
 			// extensions via jiti). Skills/prompts/themes still load normally.
 			noExtensions: true,
-			extensionFactories: [
+		extensionFactories: [
+				...(includeRoutines ? [piRoutinesFactory] : []),
 				piAnthropicMessages,
 				zosmaOfficeDocs,
 				zosmaGoogleCalendar,
@@ -1410,15 +1507,17 @@ async function main() {
 				// latest content without restarting the app. Never fatal: a read
 				// failure just omits the block.
 				let personaBlock = "";
-				try {
-					personaBlock = customInstructionsBlock(
-						loadInstructions(zosmaAgentDir(zosmaDir)),
-					);
-				} catch (err) {
-					log(
-						"loadInstructions failed (custom instructions omitted): %s",
-						err instanceof Error ? err.message : String(err),
-					);
+				if (includePersona) {
+					try {
+						personaBlock = customInstructionsBlock(
+							loadInstructions(zosmaAgentDir(zosmaDir)),
+						);
+					} catch (err) {
+						log(
+							"loadInstructions failed (custom instructions omitted): %s",
+							err instanceof Error ? err.message : String(err),
+						);
+					}
 				}
 				try {
 					const aboutPath = writeAboutDoc(zosmaAgentDir(zosmaDir));
@@ -1482,6 +1581,7 @@ async function main() {
 		// created here so the rest of init binds tools/sessions to a real dir.
 		if (workspace !== undefined) {
 			workspaceCwd = resolveWorkspace(workspace);
+			retargetTasksWatcher(workspaceCwd);
 		}
 		log("Workspace cwd: %s", workspaceCwd);
 		const piDir = piAgentDir();
@@ -1584,6 +1684,86 @@ async function main() {
 			resourceLoader,
 		});
 		session = result.session;
+
+		// ── Wire forked pi-routines onFireCallback (#300) ─────────────────
+		// Route task fires into an ISOLATED Cowork session (NOT the shared chat
+		// session). Each fire gets its own sessionId + event stream so it can't
+		// capture unrelated chat/task activity (bleed-over) and can't fast-fail
+		// with "Agent is already processing". The per-run session uses a
+		// routines-free resource loader so it doesn't spawn a nested scheduler.
+		// Execution + capture logic lives in runTaskFire (task-fire.ts, tested).
+		(globalThis as Record<string, unknown>).__PI_ROUTINES_ON_FIRE = async (
+			task: {
+				id: string;
+				name: string;
+				prompt: string;
+				createdAt: string;
+				lastRunAt?: string;
+				nextRunAt?: string;
+				recurring: boolean;
+				maxAgeDays: number;
+				sessionId?: string;
+			},
+			store: {
+				updateRun(taskId: string, runId: string, updates: Record<string, unknown>): void;
+			},
+			runId: string,
+		): Promise<void> => {
+			await runTaskFire({
+				task: { id: task.id, name: task.name, prompt: task.prompt },
+				runId,
+				store,
+				send,
+				log,
+				createSession: async () => {
+					// Fresh isolated session for THIS run only.
+					const runResourceLoader = await buildResourceLoader(workspaceCwd, {
+						includeRoutines: false,
+						includePersona: false,
+					});
+					const runSessionManager = SessionManager.inMemory(workspaceCwd);
+					const runResult = await createAgentSession({
+						cwd: workspaceCwd,
+						authStorage,
+						modelRegistry,
+						sessionManager: runSessionManager,
+						settingsManager,
+						resourceLoader: runResourceLoader,
+					});
+					const runSession = runResult.session;
+					return {
+						subscribe: (listener) =>
+							runSession.subscribe(listener as Parameters<typeof runSession.subscribe>[0]),
+						prompt: (text) => runSession.prompt(text),
+						dispose: () => runSession.dispose(),
+					};
+				},
+			});
+		};
+
+		// ── Wire forked pi-routines with Cowork-specific lock (#300) ─────
+		// Use a separate lock file so Cowork can fire tasks independently
+		// of the pi CLI. The task file stays shared (single source of truth
+		// for what's scheduled), but Cowork gets its own lock so it doesn't
+		// block on the pi CLI's scheduler.
+		(globalThis as Record<string, unknown>).__PI_ROUTINES_LOCK_FILE = join(
+			workspaceCwd,
+			".pi",
+			"cowork_tasks.lock",
+		);
+
+		// ── Cowork active flag for pi-routines fork (#300) ────────────────
+		// Write a flag file so the forked pi-routines' session_start handler
+		// can detect that Cowork is running. When the pi CLI loads the same
+		// fork in another terminal, it checks for this file and skips creating
+		// its own scheduler — tasks fire only inside Cowork.
+		const coworkActivePath = join(workspaceCwd, ".pi", "cowork_active");
+		try {
+			writeFileSync(coworkActivePath, `${process.pid}`, "utf-8");
+		} catch {
+			// Best-effort: if we can't write the flag, the fork falls back
+			// to checking coworok_tasks.lock as a secondary signal.
+		}
 
 		// Subscribe to all agent events and forward to stdout
 		session.subscribe((event) => {
@@ -2738,6 +2918,7 @@ async function main() {
 					const requestedCwd = resolveWorkspace(cmd.cwd);
 					if (requestedCwd !== workspaceCwd) {
 						workspaceCwd = requestedCwd;
+						retargetTasksWatcher(workspaceCwd);
 						log("new_session: workspace → %s", workspaceCwd);
 						resourceLoader = await buildResourceLoader(workspaceCwd);
 					}
@@ -2836,6 +3017,7 @@ async function main() {
 								// Folder changed: rebuild the loader bound to the restored
 								// cwd (this also re-scans disk for new extensions/skills).
 								workspaceCwd = sessionCwd;
+								retargetTasksWatcher(workspaceCwd);
 								log("load_session: workspace → %s", workspaceCwd);
 								resourceLoader = await buildResourceLoader(workspaceCwd);
 							} else {
@@ -3009,6 +3191,55 @@ async function main() {
 				case "list_extensions": {
 					const extensions = await discoverExtensions(zosmaDir, workspaceCwd);
 					send({ type: "result", id: cmd.id, data: { extensions } });
+					break;
+				}
+
+				// ── Tasks bridge ───────────────────────────────────────────
+				// Read/write pi-routines' per-cwd .pi/scheduled_tasks.json
+				// directly (no LLM round-trip). cwd defaults to the active
+				// session's workspaceCwd. See tasks-store.ts.
+				case "tasks_list": {
+					const tasks = listTasks(cmd.cwd ?? workspaceCwd);
+					send({ type: "result", id: cmd.id, data: { tasks } });
+					break;
+				}
+
+				case "tasks_delete": {
+					const deleted = deleteTask(cmd.cwd ?? workspaceCwd, cmd.taskId);
+					send({ type: "result", id: cmd.id, data: { deleted } });
+					break;
+				}
+
+				case "tasks_set_enabled": {
+					const ok = setTaskEnabled(
+						cmd.cwd ?? workspaceCwd,
+						cmd.taskId,
+						cmd.enabled,
+					);
+					send({ type: "result", id: cmd.id, data: { ok } });
+					break;
+				}
+
+				case "tasks_run_now": {
+					const ran = runTaskNow(cmd.cwd ?? workspaceCwd, cmd.taskId);
+					send({ type: "result", id: cmd.id, data: { ran } });
+					break;
+				}
+
+				// ── Tasks bridge: run history (#300) ────────────────────────
+				case "tasks_list_runs": {
+					const runs = listRuns(
+						cmd.cwd ?? workspaceCwd,
+						cmd.taskId,
+						cmd.limit ?? 50,
+					);
+					send({ type: "result", id: cmd.id, data: { runs } });
+					break;
+				}
+
+				case "tasks_get_completed": {
+					const completed = getCompletedTasks(cmd.cwd ?? workspaceCwd);
+					send({ type: "result", id: cmd.id, data: { completed } });
 					break;
 				}
 

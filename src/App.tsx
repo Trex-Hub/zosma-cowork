@@ -8,6 +8,8 @@ import { RemoteConnectionBar } from "@/components/RemoteConnectionBar";
 import { SettingsPage } from "@/components/SettingsPage";
 import { ShareExport } from "@/components/ShareExport";
 import { Sidebar } from "@/components/Sidebar";
+import { RunHistory } from "@/components/RunHistory";
+import { TaskDetailPage } from "@/components/TaskDetailPage";
 import { SplashScreen } from "@/components/SplashScreen";
 import { TelemetryConsentDialog } from "@/components/TelemetryConsentDialog";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -17,6 +19,8 @@ import { useUpdate } from "@/contexts/UpdateProvider";
 import { useAuth } from "@/hooks/useAuth";
 import { usePiStream } from "@/hooks/usePiStream";
 import { useProviders } from "@/hooks/useProviders";
+import { useRoutinesExtension } from "@/hooks/useRoutinesExtension";
+import { useTasks } from "@/hooks/useTasks";
 import { useTelemetry } from "@/hooks/useTelemetry";
 import {
 	BUILTIN_COMMANDS,
@@ -93,6 +97,36 @@ function App() {
 	// modal even without stored credentials.
 	const [skipOnboarding, setSkipOnboarding] = useState(false);
 	const [sidebarView, setSidebarView] = useState("chats");
+	// Tasks tab (#289): the selected task drives the main-pane detail view, and
+	// the Tasks tab transparently installs/enables pi-routines on first visit.
+	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const tasksApi = useTasks();
+	const routines = useRoutinesExtension(
+		sidebarView === "tasks" || sidebarView === "history",
+	);
+	const selectedTask = tasksApi.tasks.find((t) => t.id === selectedTaskId) ?? null;
+	const handleChangeView = useCallback((view: string) => {
+		setSidebarView(view);
+		setShowSettings(view === "settings");
+		if (view !== "tasks") setSelectedTaskId(null);
+	}, []);
+	// Shared Tasks-tab props for both the desktop + mobile Sidebar instances.
+	const tasksSidebarProps = {
+		tasks: tasksApi.tasks,
+		tasksLoading: tasksApi.loading,
+		tasksError: tasksApi.error,
+		completedTasks: tasksApi.completedTasks,
+		completedTasksLoading: tasksApi.completedLoading,
+		selectedTaskId,
+		onTaskSelect: (id: string) => {
+			setSidebarView("tasks");
+			setShowSettings(false);
+			setSelectedTaskId(id);
+			setMobileMenuOpen(false);
+		},
+		routinesStatus: routines.status,
+		onRetryRoutines: routines.retry,
+	};
 	const [showSettings, setShowSettings] = useState(false);
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 	// True iff at least one subscription (OAuth) provider is signed in.
@@ -461,15 +495,6 @@ function App() {
 		[activeSessionFile, startStream, models, activeModelId, workspaceCwd],
 	);
 
-	// Load a prompt template into the composer instead of sending it directly,
-	// so the user can review/edit before hitting send.
-	const handleUseTemplate = useCallback((prompt: string) => {
-		setSidebarView("chats");
-		setShowSettings(false);
-		setMobileMenuOpen(false);
-		setComposerDraft((prev) => ({ text: prompt, nonce: (prev?.nonce ?? 0) + 1 }));
-	}, []);
-
 	/**
 	 * Issue #201 PR 3 — Ctrl+↑ in the composer fires this. We atomically
 	 * drain the SDK queue (so nothing fires while the user is editing) and
@@ -727,7 +752,7 @@ function App() {
 			dispatch({ type: "RESET" });
 			try {
 				const result = await invoke("load_session", { sessionFile: file });
-				const data = result as { messages: ChatMessage[]; cwd?: string };
+				const data = result as { messages: ChatMessage[]; model?: string; provider?: string; cwd?: string };
 				if (data.messages && data.messages.length > 0) {
 					setLoadedSessionMessages(data.messages);
 				}
@@ -735,6 +760,24 @@ function App() {
 				// rebinds to the session's saved folder, or home for legacy chats).
 				if (typeof data.cwd === "string") {
 					setWorkspaceCwd(data.cwd);
+				}
+				// Restore the model that was used in this conversation, so the
+				// user doesn't have to manually re-select it before sending.
+				if (data.model && data.provider) {
+					const key = modelKey(data.provider, data.model);
+					if (findModel(models, key)) {
+						setActiveModelId(key);
+						invoke("set_active_model", { model: data.model, provider: data.provider }).catch(() => {});
+					} else {
+						// Saved model isn't available (e.g. different provider config on
+						// this device). Leave the default model active; the user can
+						// pick a new one from the dropdown.
+						console.warn(
+							"[cowork] Saved model %s/%s not found in available models",
+							data.provider,
+							data.model,
+						);
+					}
 				}
 				// #268 — the sidecar rebinds to the loaded session; pull its
 				// token/cost/context totals so the footer reflects history.
@@ -745,7 +788,7 @@ function App() {
 				setLoadingSession(false);
 			}
 		},
-		[activeSessionFile, dispatch, refreshStats],
+		[activeSessionFile, dispatch, refreshStats, models],
 	);
 
 	// ── Build display messages ──
@@ -843,15 +886,8 @@ function App() {
 							onRequestRename={handleRequestRename}
 							onPinSession={handlePinSession}
 							onDeepSearch={handleDeepSearch}
-							onChangeView={(view) => {
-								setSidebarView(view);
-								if (view === "settings") {
-									setShowSettings(true);
-								} else {
-									setShowSettings(false);
-								}
-							}}
-							onUseTemplate={handleUseTemplate}
+							onChangeView={handleChangeView}
+							{...tasksSidebarProps}
 						/>
 					</div>
 
@@ -896,15 +932,8 @@ function App() {
 								onRequestRename={handleRequestRename}
 								onPinSession={handlePinSession}
 								onDeepSearch={handleDeepSearch}
-								onChangeView={(view) => {
-									setSidebarView(view);
-									if (view === "settings") {
-										setShowSettings(true);
-									} else {
-										setShowSettings(false);
-									}
-								}}
-								onUseTemplate={handleUseTemplate}
+								onChangeView={handleChangeView}
+								{...tasksSidebarProps}
 							/>
 						</div>
 					</div>
@@ -956,7 +985,9 @@ function App() {
 										? "settings"
 										: loadingSession
 											? "loading"
-											: "chat"
+											: sidebarView === "tasks"
+												? "tasks"
+												: "chat"
 						}
 						className="flex-1 flex flex-col min-h-0 animate-fade-in"
 					>
@@ -989,6 +1020,29 @@ function App() {
 								<div className="w-8 h-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
 								<div className="text-sm text-muted-foreground">Loading session...</div>
 							</div>
+						) : sidebarView === "tasks" && selectedTask ? (
+						<TaskDetailPage
+								task={selectedTask}
+								error={tasksApi.error}
+								onRunNow={tasksApi.runNow}
+								onSetEnabled={tasksApi.setEnabled}
+								onDelete={tasksApi.del}
+								onClose={() => {
+									setSelectedTaskId(null);
+									setSidebarView("chats");
+								}}
+								listRuns={tasksApi.listRuns}
+						/>
+						) : sidebarView === "tasks" ? (
+							<RunHistory
+								tasks={tasksApi.tasks}
+								completedTasks={tasksApi.completedTasks}
+								completedLoading={tasksApi.completedLoading}
+								listRuns={tasksApi.listRuns}
+								onJumpToTask={(id) => {
+									setSelectedTaskId(id);
+								}}
+							/>
 						) : (
 							<ChatView
 								messages={displayMessages}
@@ -1027,17 +1081,7 @@ function App() {
 
 				{/* Mobile bottom nav */}
 				{!hideChrome && (
-					<MobileBottomNav
-						view={sidebarView}
-						onChangeView={(view) => {
-							setSidebarView(view);
-							if (view === "settings") {
-								setShowSettings(true);
-							} else {
-								setShowSettings(false);
-							}
-						}}
-					/>
+					<MobileBottomNav view={sidebarView} onChangeView={handleChangeView} />
 				)}
 			</div>
 		</div>

@@ -1,7 +1,9 @@
-import { MessageSquare, NotebookPen, Settings } from "lucide-react";
+import { ListChecks, MessageSquare, Settings } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import type { RoutinesStatus } from "@/hooks/useRoutinesExtension";
+import type { CompletedTask, Task } from "@/types";
 import { ConversationSearch, type DeepSearchMatch } from "./ConversationSearch";
-import { PromptTemplates } from "./PromptTemplates";
+import { TasksList } from "./TasksList";
 
 interface Session {
 	id: string;
@@ -31,15 +33,28 @@ interface SidebarProps {
 	/** Deep content search across message bodies. */
 	onDeepSearch?: (query: string) => Promise<DeepSearchMatch[]>;
 	onChangeView: (view: string) => void;
-	/** Load a prompt template into the composer for editing (does not send). */
-	onUseTemplate?: (prompt: string) => void;
 	/** The user's home dir, used to collapse session paths to `~`. */
 	homeDir?: string;
+
+	// ── Tasks tab (#289) ──
+	/** Scheduled tasks for the Tasks tab list. */
+	tasks?: Task[];
+	tasksLoading?: boolean;
+	tasksError?: string | null;
+	/** Currently selected task (drives the main-pane detail). */
+	selectedTaskId?: string | null;
+	onTaskSelect?: (id: string) => void;
+	/** #300: Completed (non-recurring) tasks. */
+	completedTasks?: CompletedTask[];
+	completedTasksLoading?: boolean;
+	/** pi-routines install/enable lifecycle for the Tasks tab. */
+	routinesStatus?: RoutinesStatus;
+	onRetryRoutines?: () => void;
 }
 
 const TABS = [
-	{ id: "chats", label: "Chats", Icon: MessageSquare },
-	{ id: "templates", label: "Templates", Icon: NotebookPen },
+	{ id: "chats", label: "Cowork", Icon: MessageSquare },
+	{ id: "tasks", label: "Tasks", Icon: ListChecks },
 ] as const;
 
 // ease-out-expo
@@ -56,11 +71,19 @@ export function Sidebar({
 	onPinSession,
 	onDeepSearch,
 	onChangeView,
-	onUseTemplate,
 	homeDir,
+	tasks = [],
+	tasksLoading = false,
+	tasksError = null,
+	completedTasks = [],
+	completedTasksLoading = false,
+	selectedTaskId,
+	onTaskSelect,
+	routinesStatus = "ready",
+	onRetryRoutines,
 }: SidebarProps) {
 	const reduced = useReducedMotion();
-	const activeTab: "chats" | "templates" = view === "templates" ? "templates" : "chats";
+	const activeTab: "chats" | "tasks" = view === "tasks" ? "tasks" : "chats";
 
 	return (
 		<motion.div
@@ -113,16 +136,26 @@ export function Sidebar({
 			{/* ── Content area ── */}
 			<div className="flex-1 min-h-0 relative overflow-hidden">
 				<AnimatePresence mode="wait" initial={false}>
-					{activeTab === "templates" && onUseTemplate ? (
+					{activeTab === "tasks" ? (
 						<motion.div
-							key="templates"
+							key="tasks"
 							className="absolute inset-0"
 							initial={reduced ? { opacity: 0 } : { opacity: 0, x: 16 }}
 							animate={{ opacity: 1, x: 0 }}
 							exit={reduced ? { opacity: 0 } : { opacity: 0, x: -16 }}
 							transition={{ duration: 0.2, ease: easeOutExpo }}
 						>
-							<PromptTemplates onUseTemplate={onUseTemplate} />
+							<TasksPanel
+								status={routinesStatus}
+								onRetry={onRetryRoutines}
+								tasks={tasks}
+								loading={tasksLoading}
+								error={tasksError}
+								completedTasks={completedTasks}
+								completedLoading={completedTasksLoading}
+								selectedTaskId={selectedTaskId}
+								onSelect={onTaskSelect ?? (() => {})}
+							/>
 						</motion.div>
 					) : (
 						<motion.div
@@ -175,5 +208,96 @@ export function Sidebar({
 				</motion.button>
 			</div>
 		</motion.div>
+	);
+}
+
+/**
+ * TasksPanel — the Tasks tab content (#289).
+ *
+ * While pi-routines is being installed/enabled on first visit
+ * (`useRoutinesExtension`) this shows a "setting up" loading state; on failure,
+ * an error with a retry; once ready, the real `TasksList`.
+ */
+function TasksPanel({
+	status,
+	onRetry,
+	tasks,
+	loading,
+	error,
+	completedTasks,
+	completedLoading,
+	selectedTaskId,
+	onSelect,
+}: {
+	status: RoutinesStatus;
+	onRetry?: () => void;
+	tasks: Task[];
+	loading: boolean;
+	error: string | null;
+	completedTasks?: CompletedTask[];
+	completedLoading?: boolean;
+	selectedTaskId?: string | null;
+	onSelect: (id: string) => void;
+}) {
+	if (status === "checking" || status === "installing") {
+		return <RoutinesSetup installing={status === "installing"} />;
+	}
+	if (status === "error") {
+		return <RoutinesError onRetry={onRetry} />;
+	}
+	return (
+		<TasksList
+			tasks={tasks}
+			loading={loading}
+			error={error}
+			completedTasks={completedTasks}
+			completedLoading={completedLoading}
+			selectedTaskId={selectedTaskId}
+			onSelect={onSelect}
+		/>
+	);
+}
+
+/** First-run loading screen while the pi-routines extension is set up. */
+function RoutinesSetup({ installing }: { installing: boolean }) {
+	return (
+		<div className="flex h-full flex-col items-center justify-center px-6 text-center">
+			<div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+				<div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+			</div>
+			<p className="text-sm font-medium text-sidebar-foreground">
+				{installing ? "Setting up Tasks…" : "Checking Tasks…"}
+			</p>
+			<p className="mt-1 text-[11px] leading-relaxed text-sidebar-foreground/50">
+				{installing
+					? "Installing the scheduler extension so the agent can run tasks on a schedule. This only happens once."
+					: "Getting the Tasks scheduler ready."}
+			</p>
+		</div>
+	);
+}
+
+/** Shown if pi-routines install/enable failed. */
+function RoutinesError({ onRetry }: { onRetry?: () => void }) {
+	return (
+		<div className="flex h-full flex-col items-center justify-center px-6 text-center">
+			<div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+				<ListChecks className="h-5 w-5" />
+			</div>
+			<p className="text-sm font-medium text-sidebar-foreground">Couldn’t set up Tasks</p>
+			<p className="mt-1 text-[11px] leading-relaxed text-sidebar-foreground/50">
+				The scheduler extension (pi-routines) couldn’t be installed. You can also add it from
+				Settings → Extensions.
+			</p>
+			{onRetry && (
+				<button
+					type="button"
+					onClick={onRetry}
+					className="mt-3 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
+				>
+					Try again
+				</button>
+			)}
+		</div>
 	);
 }

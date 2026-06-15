@@ -493,6 +493,24 @@ async fn read_stdout(
                         if t == "queue_update" {
                             let _ = app.emit("queue_update", e.clone());
                         }
+                        // Tasks-bridge push: the sidecar emits this when the
+                        // active cwd's .pi/scheduled_tasks.json changes so the
+                        // Tasks list can refetch live (no prompt active).
+                        if t == "tasks_changed" {
+                            let _ = app.emit("tasks_changed", e.clone());
+                        }
+                        // Task-run-completed push (#300): the sidecar emits this
+                        // when a scheduled task finishes executing so the
+                        // TaskDetailPage can live-update the runs section.
+                        if t == "task_run_completed" {
+                            let _ = app.emit("task_run_completed", e.clone());
+                        }
+                        // Task-run-progress push (#300): the sidecar emits this
+                        // periodically while a scheduled task is still running so
+                        // the run detail view can stream live steps.
+                        if t == "task_run_progress" {
+                            let _ = app.emit("task_run_progress", e.clone());
+                        }
                     }
                     for (_, p) in pp.lock().await.iter() {
                         let _ = p.channel.send(e.clone());
@@ -1327,6 +1345,87 @@ async fn list_extensions(s: State<'_, AppState>) -> Result<Value, String> {
     )
     .await
     .map(|r| r.get("extensions").cloned().unwrap_or(Value::Array(vec![])))
+}
+
+// ── Tasks bridge (pi-routines scheduled tasks) ────────────────────
+// Thin shims over the sidecar's tasks_* commands, which read/write the
+// active cwd's .pi/scheduled_tasks.json directly (no LLM round-trip).
+// `cwd` is optional: when omitted the sidecar uses its active workspaceCwd.
+
+#[tauri::command]
+async fn tasks_list(s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_list","id":"tl"}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .map(|r| r.get("tasks").cloned().unwrap_or(Value::Array(vec![])))
+}
+
+#[tauri::command]
+async fn tasks_delete(task_id: String, s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_delete","id":"td","taskId": task_id}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn tasks_set_enabled(
+    task_id: String,
+    enabled: bool,
+    s: State<'_, AppState>,
+) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_set_enabled","id":"tse","taskId": task_id, "enabled": enabled}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn tasks_run_now(task_id: String, s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_run_now","id":"trn","taskId": task_id}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn tasks_list_runs(
+    task_id: String,
+    limit: Option<u32>,
+    s: State<'_, AppState>,
+) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({
+            "type": "tasks_list_runs",
+            "id": "tlr",
+            "taskId": task_id,
+            "limit": limit.unwrap_or(50)
+        }),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .map(|r| r.get("runs").cloned().unwrap_or(Value::Array(vec![])))
+}
+
+#[tauri::command]
+async fn tasks_get_completed(s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({"type":"tasks_get_completed","id":"tgc"}),
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .map(|r| r.get("completed").cloned().unwrap_or(Value::Array(vec![])))
 }
 
 #[tauri::command]
@@ -2246,6 +2345,12 @@ pub fn run() {
             get_instructions,
             save_instructions,
             list_extensions,
+            tasks_list,
+            tasks_delete,
+            tasks_set_enabled,
+            tasks_run_now,
+            tasks_list_runs,
+            tasks_get_completed,
             install_extension,
             uninstall_extension,
             set_extension_enabled,

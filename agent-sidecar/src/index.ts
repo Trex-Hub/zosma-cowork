@@ -165,6 +165,10 @@ import piAnthropicMessages from "./vendor/anthropic-messages/extensions/index.js
 // Zosma Office Document Generation extension — registers 8 OfficeCLI tools.
 import zosmaOfficeDocs from "./office-docs/extension.js";
 import zosmaGoogleCalendar from "./google-calendar/extension.js";
+// Vendored forked pi-routines scheduler (#300). Bundled into the sidecar so it
+// works on any machine (no absolute ~/code path). Loaded ONLY by Cowork; the
+// pi CLI never sees it. Source of truth: github.com/zosmaai/pi-routines.
+import piRoutines from "./vendor/pi-routines/index.js";
 import {
 	defaultGooglePaths,
 	disconnectGoogle,
@@ -180,7 +184,6 @@ import { runConsent } from "./google-auth/consent.js";
 // work in the bundled sidecar (no node_modules beside it). See #147.
 import {
 	buildExtensionFactories,
-	makeExtensionFactory,
 	readPiPackages,
 } from "./disk-extension-loader.js";
 
@@ -1416,11 +1419,11 @@ async function main() {
 			);
 		}
 
-		// The forked pi-routines is always injected as an inline extension
-		// factory (#300) so only Cowork loads it — never the pi CLI, since
-		// it's deliberately absent from settings.json packages.
-		const piRoutinesEntry = join(homedir(), "code", "pi-packages", "pi-routines", "src", "index.ts");
-		const piRoutinesFactory = makeExtensionFactory(piRoutinesEntry);
+		// The forked pi-routines is injected as a vendored extension factory
+		// (#300) so only Cowork loads it — never the pi CLI, since it's
+		// deliberately absent from settings.json packages. Vendored (not an
+		// absolute disk path) so the bundle is self-contained on every machine.
+		const piRoutinesFactory = piRoutines;
 
 		const loader = new DefaultResourceLoader({
 			cwd,

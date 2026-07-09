@@ -129,12 +129,13 @@ export function readPiPackages(agentDir: string = piAgentDir()): string[] {
 }
 
 /**
- * Resolve the entry-file paths of all enabled extensions using pi's own
- * package manager (handles npm/git/local sources + loose files in
+ * Resolve the entry-file paths (+ configured source string, e.g.
+ * "npm:pi-web-access") of all enabled extensions using pi's own package
+ * manager (handles npm/git/local sources + loose files in
  * agentDir/extensions). Missing sources are skipped rather than installed —
  * startup must never block on the network.
  */
-export async function resolveEnabledExtensionPaths(opts: {
+export async function resolveEnabledExtensionResources(opts: {
 	cwd: string;
 	agentDir: string;
 	settingsManager: SettingsManager;
@@ -145,7 +146,7 @@ export async function resolveEnabledExtensionPaths(opts: {
 	 * tool-name registration when a user still has the upstream package installed.
 	 */
 	excludePackages?: string[];
-}): Promise<string[]> {
+}): Promise<{ path: string; source: string }[]> {
 	const pm = new DefaultPackageManager({
 		cwd: opts.cwd,
 		agentDir: opts.agentDir,
@@ -156,15 +157,51 @@ export async function resolveEnabledExtensionPaths(opts: {
 	const isExcluded = (p: string): boolean =>
 		excluded.some((pkg) => p.includes(`node_modules/${pkg}/`) || p.includes(`/${pkg}/`));
 	const seen = new Set<string>();
-	const paths: string[] = [];
+	const out: { path: string; source: string }[] = [];
 	for (const res of resolved.extensions) {
 		if (!res.enabled) continue;
 		if (seen.has(res.path)) continue;
 		if (isExcluded(res.path)) continue;
 		seen.add(res.path);
-		paths.push(res.path);
+		out.push({ path: res.path, source: res.metadata.source });
 	}
-	return paths;
+	return out;
+}
+
+export interface ExtensionRegistration {
+	path: string;
+	source: string;
+	tools: string[];
+	commands: string[];
+	hooks: string[];
+	loaded: boolean;
+}
+
+/** Wrap `pi` so registerTool/registerCommand/on calls are also recorded into `reg`. */
+function wrapApiForTracking(pi: ExtensionAPI, reg: ExtensionRegistration): ExtensionAPI {
+	return new Proxy(pi, {
+		get(target, prop, receiver) {
+			if (prop === "registerTool") {
+				return (tool: { name: string }) => {
+					reg.tools.push(tool.name);
+					return target.registerTool(tool as never);
+				};
+			}
+			if (prop === "registerCommand") {
+				return (name: string, options: Parameters<ExtensionAPI["registerCommand"]>[1]) => {
+					reg.commands.push(name);
+					return target.registerCommand(name, options);
+				};
+			}
+			if (prop === "on") {
+				return (event: string, handler: unknown) => {
+					if (!reg.hooks.includes(event)) reg.hooks.push(event);
+					return (target.on as (e: string, h: unknown) => void)(event, handler);
+				};
+			}
+			return Reflect.get(target, prop, receiver);
+		},
+	}) as ExtensionAPI;
 }
 
 /**
@@ -172,8 +209,12 @@ export async function resolveEnabledExtensionPaths(opts: {
  * through our virtualModules-backed jiti and invokes its default-exported
  * factory. Errors are rethrown with the real path (the resource loader only
  * knows these as `<inline:N>`).
+ *
+ * When `reg` is passed, tool/command/hook registrations made by this
+ * extension are recorded into it, and `reg.loaded` is set once the factory
+ * completes successfully (see `ExtensionRegistration`).
  */
-export function makeExtensionFactory(entryPath: string): ExtensionFactory {
+export function makeExtensionFactory(entryPath: string, reg?: ExtensionRegistration): ExtensionFactory {
 	return async (pi: ExtensionAPI) => {
 		let factory: unknown;
 		try {
@@ -187,22 +228,35 @@ export function makeExtensionFactory(entryPath: string): ExtensionFactory {
 		if (typeof factory !== "function") {
 			throw new Error(`extension ${entryPath} has no default-exported factory function`);
 		}
-		await (factory as ExtensionFactory)(pi);
+		const trackedApi = reg ? wrapApiForTracking(pi, reg) : pi;
+		await (factory as ExtensionFactory)(trackedApi);
+		if (reg) reg.loaded = true;
 	};
 }
 
 /**
  * Build extension factories for every enabled pi extension. Returns the
  * factories (to pass to DefaultResourceLoader.extensionFactories alongside the
- * vendored inline ones) and the resolved entry paths (for logging).
+ * vendored inline ones), the resolved entry paths (for logging), and a
+ * registration bucket per extension (mutated in place as each factory runs —
+ * see `ExtensionRegistration`) for the `<available_extensions>` prompt catalog.
  */
 export async function buildExtensionFactories(opts: {
 	cwd: string;
 	agentDir: string;
 	settingsManager: SettingsManager;
-	/** Packages superseded by an owned in-sidecar extension; see resolveEnabledExtensionPaths. */
+	/** Packages superseded by an owned in-sidecar extension; see resolveEnabledExtensionResources. */
 	excludePackages?: string[];
-}): Promise<{ factories: ExtensionFactory[]; paths: string[] }> {
-	const paths = await resolveEnabledExtensionPaths(opts);
-	return { factories: paths.map(makeExtensionFactory), paths };
+}): Promise<{ factories: ExtensionFactory[]; paths: string[]; registrations: ExtensionRegistration[] }> {
+	const resources = await resolveEnabledExtensionResources(opts);
+	const registrations: ExtensionRegistration[] = resources.map(({ path, source }) => ({
+		path,
+		source,
+		tools: [],
+		commands: [],
+		hooks: [],
+		loaded: false,
+	}));
+	const factories = resources.map((r, i) => makeExtensionFactory(r.path, registrations[i]));
+	return { factories, paths: resources.map((r) => r.path), registrations };
 }

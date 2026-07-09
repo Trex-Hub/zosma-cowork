@@ -148,6 +148,7 @@ import {
 	createAgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { coworkSelfKnowledgePointer, writeAboutDoc } from "./about-cowork.js";
+import { formatExtensionsForPrompt } from "./extension-prompt.js";
 import { activateBundledBinaries } from "./bundled-binaries.js";
 import { commandQueue } from "./command-queue.js";
 import {
@@ -218,7 +219,11 @@ import piAnthropicMessages from "./vendor/anthropic-messages/extensions/index.js
 const SUPERSEDED_GOOGLE_PACKAGES = ["pi-google-workspace", "@e9n/pi-gmail"];
 // Loads pi's disk/npm/git extensions via virtualModules-backed jiti so they
 // work in the bundled sidecar (no node_modules beside it). See #147.
-import { buildExtensionFactories, readPiPackages } from "./disk-extension-loader.js";
+import {
+	buildExtensionFactories,
+	type ExtensionRegistration,
+	readPiPackages,
+} from "./disk-extension-loader.js";
 import { appExtensionStatus } from "./google-auth/app-requirements.js";
 import {
 	defaultGooglePaths,
@@ -1589,23 +1594,25 @@ async function main() {
 		// dev/prod parity. `noExtensions: true` below stops the resource loader
 		// from also trying (and failing) to load them.
 		let diskExtensionFactories: ExtensionFactory[] = [];
-		try {
-			const built = await buildExtensionFactories({
-				cwd,
-				agentDir: piResourceDir,
-				settingsManager,
-				// Owned, broker-aware extensions supersede these upstream packages;
-				// skip their disk copies so tool names don't double-register.
-				excludePackages: SUPERSEDED_GOOGLE_PACKAGES,
-			});
-			diskExtensionFactories = built.factories;
-			log(
-				`loading ${built.paths.length} pi extension(s) via virtualModules: ${
-					built.paths.join(", ") || "(none)"
-				}`,
-			);
-		} catch (err) {
-			log(`failed to resolve pi extensions: ${err instanceof Error ? err.message : String(err)}`);
+		let diskExtensionRegistrations: ExtensionRegistration[] = [];
+			try {
+				const built = await buildExtensionFactories({
+					cwd,
+					agentDir: piResourceDir,
+					settingsManager,
+					// Owned, broker-aware extensions supersede these upstream packages;
+					// skip their disk copies so tool names don't double-register.
+					excludePackages: SUPERSEDED_GOOGLE_PACKAGES,
+				});
+				diskExtensionFactories = built.factories;
+				diskExtensionRegistrations = built.registrations;
+				log(
+					`loading ${built.paths.length} pi extension(s) via virtualModules: ${
+						built.paths.join(", ") || "(none)"
+					}`,
+				);
+			} catch (err) {
+				log(`failed to resolve pi extensions: ${err instanceof Error ? err.message : String(err)}`);
 		}
 
 		// The forked pi-routines is injected as a vendored extension factory
@@ -1654,17 +1661,37 @@ async function main() {
 						);
 					}
 				}
+				// Extensions catalog (#161): built from diskExtensionRegistrations, the
+				// ground truth of what each extension actually registered (populated
+				// above as loader.reload() runs its factory), not a re-run of the
+				// Settings-panel discovery scan — so it only ever advertises extensions
+				// whose tools truly reached the model. Never fatal: a lookup failure
+				// just omits the block.
+				let extensionsBlock = "";
+				try {
+					extensionsBlock = formatExtensionsForPrompt(diskExtensionRegistrations);
+					// stderr only — stdout is JSON-protocol-only, see extension-prompt.ts.
+					log(`extensionsBlock:\n${extensionsBlock || "(empty)"}`);
+				} catch (err) {
+					log(
+						"formatExtensionsForPrompt failed (extensions catalog omitted): %s",
+						err instanceof Error ? err.message : String(err),
+					);
+				}
+				let prompt: string;
 				try {
 					const aboutPath = writeAboutDoc(zosmaAgentDir(zosmaDir));
-					const base = `${ZOSMA_SYSTEM_PROMPT}\n\n${coworkSelfKnowledgePointer(aboutPath)}`;
-					return personaBlock ? `${base}\n\n${personaBlock}` : base;
+					const base = `${ZOSMA_SYSTEM_PROMPT}\n\n${coworkSelfKnowledgePointer(aboutPath)}${extensionsBlock}`;
+					prompt = personaBlock ? `${base}\n\n${personaBlock}` : base;
 				} catch (err) {
 					log(
 						"writeAboutDoc failed (self-knowledge pointer omitted): %s",
 						err instanceof Error ? err.message : String(err),
 					);
-					return personaBlock ? `${ZOSMA_SYSTEM_PROMPT}\n\n${personaBlock}` : ZOSMA_SYSTEM_PROMPT;
+					const base = `${ZOSMA_SYSTEM_PROMPT}${extensionsBlock}`;
+					prompt = personaBlock ? `${base}\n\n${personaBlock}` : base;
 				}
+				return prompt;
 			},
 			appendSystemPromptOverride: () => [],
 		});

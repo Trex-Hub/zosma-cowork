@@ -215,7 +215,7 @@ function sourceOf(spec: string): ExtensionSource {
 }
 
 /** Walk up from a resolved entry path to its owning package.json directory. */
-function nearestPackageDir(entryPath: string): string {
+export function nearestPackageDir(entryPath: string): string {
 	let dir = existsSync(entryPath) && !isDirectory(entryPath) ? dirname(entryPath) : entryPath;
 	for (let i = 0; i < 8; i++) {
 		if (existsSync(join(dir, "package.json"))) return dir;
@@ -289,7 +289,7 @@ export async function discoverExtensions(
 
 // ─── Read metadata from a package directory ──────────────────────────
 
-function readExtensionMeta(installPath: string): {
+export function readExtensionMeta(installPath: string): {
 	name?: string;
 	version?: string;
 	description?: string;

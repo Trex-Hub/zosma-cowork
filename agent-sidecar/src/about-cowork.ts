@@ -47,12 +47,19 @@ Cowork shares pi's resources, so extensions are the same ones the pi CLI uses.
 - They live under **\`~/.pi/agent\`** (pi's canonical agent directory) — installed
   npm/disk/git extensions there are available to Cowork automatically, and
   anything installed from Cowork shows up in the pi CLI too.
-- Extensions register extra tools (e.g. Office document generation, Google
-  Calendar, the Anthropic-messages bridge) that appear alongside your built-in
-  tools (\`read\`, \`bash\`, \`edit\`, \`write\`, …).
+- Extensions register extra tools that appear alongside your built-in tools
+  (\`read\`, \`bash\`, \`edit\`, \`write\`, …). If a system-prompt
+  \`<available_extensions>\` block is present, it lists exactly what's
+  currently installed and loaded — use it, don't guess.
 - The desktop app exposes an **Extensions** panel to discover, install, enable,
   disable, and configure them; under the hood this manages the same
   \`~/.pi/agent\` config the CLI reads.
+- **Not extensions:** Office document generation, Google Calendar/Workspace/
+  Gmail, and the Anthropic-messages bridge are Cowork's own **built-in**
+  capabilities — bundled into the app itself, not installed/removable via the
+  Extensions panel or \`~/.pi/agent\`. They register tools the same way an
+  extension does, but you should never call them "extensions" if asked what
+  extensions are installed.
 
 ## Skills
 

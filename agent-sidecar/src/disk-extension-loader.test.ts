@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { makeExtensionFactory, readPiPackages } from "./disk-extension-loader.js";
+import {
+	type ExtensionRegistration,
+	makeExtensionFactory,
+	readPiPackages,
+} from "./disk-extension-loader.js";
+
+function emptyRegistration(path: string, source = "npm:demo"): ExtensionRegistration {
+	return { path, source, tools: [], commands: [], hooks: [], loaded: false };
+}
 
 // ── readPiPackages ────────────────────────────────────────────────────
 
@@ -118,6 +126,86 @@ describe("makeExtensionFactory", () => {
 			await expect(makeExtensionFactory(entry)(fakeApi)).rejects.toThrow(
 				"no default-exported factory",
 			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("records registered tools, commands, and hooks into the passed registration", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-reg-"));
+		try {
+			const entry = join(dir, "ext.ts");
+			writeFileSync(
+				entry,
+				[
+					"export default async function(pi){",
+					"  pi.registerTool({ name: 'web_search' });",
+					"  pi.registerTool({ name: 'fetch_content' });",
+					"  pi.registerCommand('search', {});",
+					"  pi.on('session_start', () => {});",
+					"}",
+				].join("\n"),
+			);
+			const calls: string[] = [];
+			const fakeApi = {
+				registerTool: (t: { name: string }) => calls.push(`tool:${t.name}`),
+				registerCommand: (n: string) => calls.push(`command:${n}`),
+				on: (e: string) => calls.push(`on:${e}`),
+			} as unknown as Parameters<ReturnType<typeof makeExtensionFactory>>[0];
+
+			const reg = emptyRegistration(entry, "npm:demo-ext");
+			await makeExtensionFactory(entry, reg)(fakeApi);
+
+			// Still calls through to the real api (tracking must not swallow calls).
+			expect(calls).toEqual([
+				"tool:web_search",
+				"tool:fetch_content",
+				"command:search",
+				"on:session_start",
+			]);
+			expect(reg.tools).toEqual(["web_search", "fetch_content"]);
+			expect(reg.commands).toEqual(["search"]);
+			expect(reg.hooks).toEqual(["session_start"]);
+			expect(reg.loaded).toBe(true);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves the registration unloaded when the extension factory throws", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-reg-throw-"));
+		try {
+			const entry = join(dir, "ext.ts");
+			writeFileSync(
+				entry,
+				"export default async function(pi){ pi.registerTool({ name: 'x' }); throw new Error('boom'); }\n",
+			);
+			const fakeApi = {
+				registerTool: () => {},
+			} as unknown as Parameters<ReturnType<typeof makeExtensionFactory>>[0];
+
+			const reg = emptyRegistration(entry);
+			await expect(makeExtensionFactory(entry, reg)(fakeApi)).rejects.toThrow("boom");
+			expect(reg.loaded).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not track when no registration bucket is passed (backward compatible)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-reg-none-"));
+		try {
+			const entry = join(dir, "ext.ts");
+			writeFileSync(
+				entry,
+				"export default async function(pi){ pi.registerTool({ name: 'demo' }); }\n",
+			);
+			const calls: string[] = [];
+			const fakeApi = {
+				registerTool: (t: { name: string }) => calls.push(t.name),
+			} as unknown as Parameters<ReturnType<typeof makeExtensionFactory>>[0];
+			await makeExtensionFactory(entry)(fakeApi);
+			expect(calls).toEqual(["demo"]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}

@@ -49,6 +49,10 @@ interface ChatViewProps {
 	thinking?: ThinkingState;
 	/** #268 — cycle the reasoning effort from the status-line pill. */
 	onCycleThinking?: () => void;
+	/** The agent's current working folder, shown as a chip in the composer. */
+	workspaceCwd?: string;
+	/** User's home dir, used to collapse `workspaceCwd` to `~/...`. */
+	homeDir?: string;
 }
 
 export function ChatView({
@@ -72,6 +76,8 @@ export function ChatView({
 	onFollowUp,
 	queue,
 	onEditQueue,
+	workspaceCwd,
+	homeDir,
 }: ChatViewProps) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -358,6 +364,8 @@ export function ChatView({
 					draft={draft}
 					commands={commands}
 					onRunCommand={onRunCommand}
+					workspaceCwd={workspaceCwd}
+					homeDir={homeDir}
 				/>
 			</motion.div>
 

@@ -1,8 +1,9 @@
 import { usePasteDetection } from "@/hooks/usePasteDetection";
+import { displayPath } from "@/lib/paths";
 import { trackEvent } from "@/lib/telemetry";
 import type { ModelInfo } from "@/types";
 import type { Command } from "@/types/commands";
-import { ArrowUp, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, FolderOpen, Mic, Paperclip, Square, X } from "lucide-react";
 import {
 	forwardRef,
 	useCallback,
@@ -81,6 +82,10 @@ interface MessageInputProps {
 	 * nothing accidentally fires.
 	 */
 	onEditQueue?: () => void;
+	/** The agent's current working folder, so an attached folder is visible (was silent). */
+	workspaceCwd?: string;
+	/** User's home dir, used to collapse `workspaceCwd` to `~/...` like the sidebar. */
+	homeDir?: string;
 }
 
 export interface MessageInputHandle {
@@ -107,6 +112,8 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(
 			onFollowUp,
 			queue,
 			onEditQueue,
+			workspaceCwd,
+			homeDir,
 		},
 		ref,
 	) => {
@@ -508,6 +515,18 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(
 									style={{ color: "hsl(var(--muted-foreground) / 0.55)" }}
 								>
 									{modelLabel || "Zosma"}
+								</span>
+							)}
+							{workspaceCwd && workspaceCwd.replace(/[/\\]+$/, "") !== homeDir?.replace(/[/\\]+$/, "") && (
+								<span
+									aria-label={`Working folder: ${displayPath(workspaceCwd, homeDir)}`}
+									title={workspaceCwd}
+									className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] max-w-32 shrink-0 text-muted-foreground/55"
+								>
+									<FolderOpen size={12} className="shrink-0" />
+									<span className="truncate">
+										{displayPath(workspaceCwd, homeDir).split(/[/\\]/).pop() || "~"}
+									</span>
 								</span>
 							)}
 						</div>

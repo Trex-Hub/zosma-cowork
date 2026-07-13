@@ -1107,6 +1107,8 @@ function App() {
 								draft={composerDraft}
 								commands={BUILTIN_COMMANDS}
 								onRunCommand={handleRunCommand}
+								workspaceCwd={workspaceCwd ?? undefined}
+								homeDir={homeDir ?? undefined}
 							/>
 						)}
 					</div>

@@ -21,6 +21,34 @@ describe("MessageInput file picker", () => {
 		expect(screen.getByLabelText("Attach files")).toBeInTheDocument();
 	});
 
+	it("shows the attached workspace folder when different from default", () => {
+		render(
+			<MessageInput
+				onSend={vi.fn()}
+				workspaceCwd="/Users/dev/projects/foo"
+				homeDir="/Users/dev"
+			/>,
+		);
+		expect(screen.getByLabelText("Working folder: ~/projects/foo")).toBeInTheDocument();
+		expect(screen.getByText("foo")).toBeInTheDocument();
+	});
+
+	it("hides the folder indicator when workspace equals the default home folder", () => {
+		render(
+			<MessageInput
+				onSend={vi.fn()}
+				workspaceCwd="/Users/dev"
+				homeDir="/Users/dev"
+			/>,
+		);
+		expect(screen.queryByLabelText(/^Working folder/)).not.toBeInTheDocument();
+	});
+
+	it("omits the folder indicator when no workspace is known yet", () => {
+		render(<MessageInput onSend={vi.fn()} />);
+		expect(screen.queryByLabelText(/^Working folder/)).not.toBeInTheDocument();
+	});
+
 	it("opens file dialog on attach button click", async () => {
 		mockOpen.mockResolvedValue(["/home/test/doc.md"]);
 		const user = userEvent.setup();

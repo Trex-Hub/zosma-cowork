@@ -394,7 +394,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(
 						disabled={disabled}
 						enterKeyHint="send"
 						inputMode="text"
-						className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+						className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 overflow-x-hidden"
 					/>
 
 					{/* PR3 follow-up: the standalone steer/follow-up hint row and

@@ -1,5 +1,4 @@
 import { ChatView } from "@/chat/ChatView";
-import { ChatWidthToggle } from "@/components/ChatWidthToggle";
 import { ExtensionUiHost } from "@/components/ExtensionUiHost";
 import { HelpDialog } from "@/components/HelpDialog";
 import { HomeView } from "@/components/HomeView";
@@ -8,7 +7,6 @@ import { MobileTopBar } from "@/components/MobileTopBar";
 import { RemoteConnectionBar } from "@/components/RemoteConnectionBar";
 import { RunHistory } from "@/components/RunHistory";
 import { SettingsPage } from "@/components/SettingsPage";
-import { ShareExport } from "@/components/ShareExport";
 import { Sidebar } from "@/components/Sidebar";
 import { SplashScreen } from "@/components/SplashScreen";
 import { TaskDetailPage } from "@/components/TaskDetailPage";
@@ -1004,14 +1002,6 @@ function App() {
 							setMobileMenuOpen(false);
 						}}
 					/>
-				)}
-
-				{/* Floating action overlay — no layout cost */}
-				{!hideChrome && (
-					<div className="hidden md:flex items-center gap-2 absolute top-2 right-3 z-10">
-						<ChatWidthToggle />
-						<ShareExport messages={displayMessages} />
-					</div>
 				)}
 
 				{/* Content with view transition key */}

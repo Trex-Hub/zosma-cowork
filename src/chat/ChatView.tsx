@@ -2,10 +2,9 @@ import { ChatMessageItem } from "@/components/ChatMessage";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { InThreadFind } from "@/components/InThreadFind";
 import { MessageInput } from "@/components/MessageInput";
-import { StatusLine } from "@/components/StatusLine";
 import { useGreeting } from "@/hooks/useGreeting";
 import type { ToolPhase } from "@/hooks/usePiStream";
-import { findModel } from "@/lib/model-key";
+
 import type { SessionStats, ThinkingState } from "@/lib/sessionStats";
 import type { ChatMessage, ModelInfo } from "@/types";
 import type { Command } from "@/types/commands";
@@ -56,7 +55,6 @@ export function ChatView({
 	messages,
 	streamingMessage,
 	isRunning,
-	status,
 	error,
 	onSend,
 	onAbort,
@@ -66,7 +64,6 @@ export function ChatView({
 	onModelSelect,
 	modelSelectorOpen,
 	onModelSelectorOpenChange,
-	toolPhase,
 	sessionKey,
 	draft,
 	commands,
@@ -75,9 +72,6 @@ export function ChatView({
 	onFollowUp,
 	queue,
 	onEditQueue,
-	sessionStats,
-	thinking,
-	onCycleThinking,
 }: ChatViewProps) {
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -249,21 +243,6 @@ export function ChatView({
 				onPrev={goPrevMatch}
 				onClose={closeFind}
 			/>
-
-			{/* #268 statusbar — pinned to the very top edge of the chat panel.
-			    Active chat only: the empty state stays ultra-clean (decision C). */}
-			{!isEmpty && thinking && (
-				<StatusLine
-					stats={sessionStats ?? null}
-					thinking={thinking}
-					modelName={findModel(models, currentModelId)?.name}
-					onCycleThinking={onCycleThinking}
-					isRunning={isRunning}
-					status={status}
-					streamingMessage={streamingMessage}
-					toolPhase={toolPhase}
-				/>
-			)}
 
 			<div
 				ref={scrollContainerRef}

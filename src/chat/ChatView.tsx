@@ -3,21 +3,16 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { InThreadFind } from "@/components/InThreadFind";
 import { MessageInput } from "@/components/MessageInput";
 import { useGreeting } from "@/hooks/useGreeting";
-import type { ToolPhase } from "@/hooks/usePiStream";
 
-import type { SessionStats, ThinkingState } from "@/lib/sessionStats";
 import type { ChatMessage, ModelInfo } from "@/types";
 import type { Command } from "@/types/commands";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export type StreamStateStatus = "idle" | "thinking" | "tool_call" | "responding" | "error";
-
 interface ChatViewProps {
 	messages: ChatMessage[];
 	streamingMessage: ChatMessage | null;
 	isRunning: boolean;
-	status: StreamStateStatus;
 	error: string | null;
 	onSend: (text: string) => void;
 	onAbort: () => void;
@@ -27,7 +22,6 @@ interface ChatViewProps {
 	onModelSelect?: (provider: string, modelId: string) => void;
 	modelSelectorOpen?: boolean;
 	onModelSelectorOpenChange?: (open: boolean) => void;
-	toolPhase?: ToolPhase | null;
 	/** Changing this remounts the input, retriggering its entrance animation */
 	sessionKey?: string;
 	/** External draft (e.g. a prompt template) to load into the composer for editing. */
@@ -43,12 +37,6 @@ interface ChatViewProps {
 	queue?: { steering: readonly string[]; followUp: readonly string[] };
 	/** Issue #201, PR 3 — user pressed Ctrl+↑ to edit the pending queue. */
 	onEditQueue?: () => void;
-	/** #268 — session telemetry for the always-on status line. */
-	sessionStats?: SessionStats | null;
-	/** #268 — reasoning level slice (level + supported ladder). */
-	thinking?: ThinkingState;
-	/** #268 — cycle the reasoning effort from the status-line pill. */
-	onCycleThinking?: () => void;
 	/** The agent's current working folder, shown as a chip in the composer. */
 	workspaceCwd?: string;
 	/** User's home dir, used to collapse `workspaceCwd` to `~/...`. */

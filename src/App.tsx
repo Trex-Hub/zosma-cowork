@@ -66,13 +66,8 @@ function App() {
 		steerStream,
 		followUpStream,
 		clearQueue,
-		toolPhase,
 		dispatch,
-		// #268 — status-line telemetry + reasoning control
-		sessionStats,
-		thinking,
 		refreshStats,
-		cycleThinking,
 	} = usePiStream();
 	const telemetry = useTelemetry();
 	const [showTelemetryConsent, setShowTelemetryConsent] = useState<boolean | null>(null);
@@ -1128,7 +1123,6 @@ function App() {
 								messages={displayMessages}
 								streamingMessage={streamState.streamingMessage}
 								isRunning={streamState.isRunning}
-								status={streamState.status}
 								error={streamState.error}
 								onSend={handleSend}
 								onAbort={() => abortStream()}
@@ -1138,10 +1132,6 @@ function App() {
 								/* Issue #201, PR 3 — queue visibility + editing. */
 								queue={streamState.queue}
 								onEditQueue={handleEditQueue}
-								/* #268 — always-on status line telemetry + reasoning. */
-								sessionStats={sessionStats}
-								thinking={thinking}
-								onCycleThinking={cycleThinking}
 								sessionKey={activeSessionFile ?? "new"}
 								onRetry={() => {
 									const lastUser = [...displayMessages].reverse().find((m) => m.role === "user");
@@ -1152,7 +1142,6 @@ function App() {
 								onModelSelect={handleModelSelect}
 								modelSelectorOpen={showModelSelector}
 								onModelSelectorOpenChange={setShowModelSelector}
-								toolPhase={toolPhase}
 								draft={composerDraft}
 								commands={BUILTIN_COMMANDS}
 								onRunCommand={handleRunCommand}

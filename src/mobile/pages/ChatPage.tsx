@@ -14,7 +14,6 @@ export function ChatPage({ pin, token, onDisconnect }: ChatPageProps) {
 		messages,
 		streamingMessage,
 		isRunning,
-		status,
 		error,
 		sendMessage,
 		abort,
@@ -70,7 +69,6 @@ export function ChatPage({ pin, token, onDisconnect }: ChatPageProps) {
 					messages={messages}
 					streamingMessage={streamingMessage}
 					isRunning={isRunning}
-					status={status}
 					error={error}
 					onSend={handleSend}
 					onAbort={abort}

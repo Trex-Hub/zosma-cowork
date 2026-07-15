@@ -151,6 +151,7 @@ import {
 import { coworkSelfKnowledgePointer, writeAboutDoc } from "./about-cowork.js";
 import { activateBundledBinaries } from "./bundled-binaries.js";
 import { commandQueue } from "./command-queue.js";
+import { CONTINUATION_MSG, MAX_CONTINUATIONS, shouldContinue } from "./continuation.js";
 import {
 	deleteCustomProvider,
 	discoverModels,
@@ -183,6 +184,7 @@ import {
 // Zosma Office Document Generation extension — registers 8 OfficeCLI tools.
 import zosmaOfficeDocs from "./office-docs/extension.js";
 import { createPromptScheduler } from "./prompt-scheduler.js";
+import { validateProviderKey } from "./providers/key-validator.js";
 import { startRemoteServer, stopRemoteServer } from "./remote-server.js";
 import * as sessionStore from "./session-store.js";
 import {
@@ -195,8 +197,9 @@ import {
 	saveSettings as saveSettingsStore,
 } from "./settings-store.js";
 import { handleClearQueueCommand, handleFollowUpCommand, handleSteerCommand } from "./steering.js";
-import { CONTINUATION_MSG, MAX_CONTINUATIONS, shouldContinue } from "./continuation.js";
+import { type FireOutcomeRun, evaluateFireOutcome } from "./task-fire-outcome.js";
 import { runTaskFire } from "./task-fire.js";
+import { reconcileInterruptedRuns } from "./task-reconcile.js";
 import {
 	deleteTask,
 	getCompletedTasks,
@@ -206,7 +209,6 @@ import {
 	setTaskEnabled,
 	watchTaskFiles,
 } from "./tasks-store.js";
-import { validateProviderKey } from "./providers/key-validator.js";
 // Vendored pi-anthropic-messages bridge (see scripts/prebuild.mjs). Without
 // this loaded as an extension, Claude Pro/Max OAuth requests are
 // fingerprinted by Anthropic as a "third-party app" and rejected with a
@@ -1737,6 +1739,10 @@ async function main() {
 			retargetTasksWatcher(workspaceCwd);
 		}
 		log("Workspace cwd: %s", workspaceCwd);
+		// #328: flip any interrupted (running/pending) task runs from a prior
+		// session to failed, so the Tasks→Activity timeline never shows a ghost
+		// "running" entry for a fire that died when the app closed.
+		reconcileInterruptedRuns(workspaceCwd);
 		const piDir = piAgentDir();
 		ensureDir(piDir);
 
@@ -1859,6 +1865,7 @@ async function main() {
 			},
 			store: {
 				updateRun(taskId: string, runId: string, updates: Record<string, unknown>): void;
+				getRuns(taskId: string, limit?: number): FireOutcomeRun[];
 			},
 			runId: string,
 		): Promise<void> => {
@@ -1892,6 +1899,18 @@ async function main() {
 					};
 				},
 			});
+
+			// ── #328 failure-branch bridge ───────────────────────────────────
+			// runTaskFire NEVER throws (it records failures on the run and
+			// resolves). But the vendored pi-routines scheduler only KEEPS +
+			// retries a one-shot when this callback REJECTS; on resolve it removes
+			// the task. So a failed fire used to silently delete the one-shot with
+			// the prompt never delivered (#328). Translate a recorded "failed" run
+			// into a rejection here so the scheduler keeps + retries it — bounded to
+			// MAX_FIRE_ATTEMPTS so a permanently broken task eventually gives up
+			// instead of retrying forever.
+			const outcome = evaluateFireOutcome(runId, store.getRuns(task.id));
+			if (outcome) throw outcome;
 		};
 
 		// ── Wire forked pi-routines with Cowork-specific lock (#300) ─────
@@ -2052,11 +2071,7 @@ async function main() {
 			// at least one prior tool call exists (we're mid-workflow, not pure
 			// chat), and no abort has been signalled (#325).
 			let continuations = 0;
-			while (
-				continuations < MAX_CONTINUATIONS &&
-				!abortFired &&
-				shouldContinue(activeSession)
-			) {
+			while (continuations < MAX_CONTINUATIONS && !abortFired && shouldContinue(activeSession)) {
 				log(
 					"prompt: model narrated mid-workflow — auto-continuing (%d/%d)",
 					continuations + 1,
@@ -2080,7 +2095,8 @@ async function main() {
 				send({
 					type: "error",
 					id: cmd.id,
-					message: "Model failed to load or is unresponsive. Check model availability and try again.",
+					message:
+						"Model failed to load or is unresponsive. Check model availability and try again.",
 				});
 			}
 		} finally {
@@ -2843,9 +2859,7 @@ async function main() {
 							},
 						});
 					} else if (result.reachable) {
-						const statusMsg = result.status
-							? ` (HTTP ${result.status})`
-							: "";
+						const statusMsg = result.status ? ` (HTTP ${result.status})` : "";
 						send({
 							type: "result",
 							id: cmd.id,
@@ -2863,7 +2877,8 @@ async function main() {
 							data: {
 								ok: false,
 								reachable: false,
-								message: "Couldn't reach that endpoint. Check the URL and that the server is running.",
+								message:
+									"Couldn't reach that endpoint. Check the URL and that the server is running.",
 							},
 						});
 					}

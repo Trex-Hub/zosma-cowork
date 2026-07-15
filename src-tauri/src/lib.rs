@@ -621,6 +621,11 @@ async fn read_stdout(
                     // leaves the UI stuck in "thinking" forever.
                     if let Some(p) = pp.lock().await.remove(id) {
                         let _ = p.channel.send(serde_json::json!({"type":"done"}));
+                    } else if let Some(p) = pr.lock().await.remove(id) {
+                        // Some commands (e.g. save_session) send `done` instead of
+                        // `result`. Treat it as a successful empty response so the
+                        // matching `scmd_r` wait resolves instead of timing out.
+                        let _ = p.sender.send(Ok(Value::Null));
                     }
                 }
             }
@@ -1414,6 +1419,22 @@ async fn rename_session(
             "title": title,
         }),
         std::time::Duration::from_secs(10),
+    )
+    .await
+}
+
+/// Summarize the first user message into a short session title using a cheap
+/// LLM. Returns `{ title: string }` on success.
+#[tauri::command]
+async fn summarize_title(first_message: String, s: State<'_, AppState>) -> Result<Value, String> {
+    scmd_r(
+        &s,
+        &serde_json::json!({
+            "type":"summarize_title",
+            "id":"sumt",
+            "firstMessage": first_message,
+        }),
+        std::time::Duration::from_secs(30),
     )
     .await
 }
@@ -2589,6 +2610,7 @@ pub fn run() {
             load_session,
             delete_session,
             rename_session,
+            summarize_title,
             set_session_pinned,
             search_sessions,
             new_session,

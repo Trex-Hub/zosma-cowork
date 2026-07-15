@@ -133,6 +133,7 @@ Guidelines:
 // direct deps now because disk-extension-loader.ts statically imports them to
 // build the extension `virtualModules` map — see #147. This supersedes the
 // earlier #154 note that pi-agent-core was intentionally undeclared.)
+import { completeSimple, type Api, type Model } from "@earendil-works/pi-ai";
 import { loginOpenAICodex } from "@earendil-works/pi-ai/oauth";
 import {
 	AuthStorage,
@@ -184,6 +185,11 @@ import zosmaOfficeDocs from "./office-docs/extension.js";
 import { createPromptScheduler } from "./prompt-scheduler.js";
 import { startRemoteServer, stopRemoteServer } from "./remote-server.js";
 import * as sessionStore from "./session-store.js";
+import {
+	cleanSummaryTitle,
+	prepareTitleInput,
+	TITLE_SYSTEM_PROMPT,
+} from "./titles.js";
 import {
 	loadSettings as loadSettingsStore,
 	saveSettings as saveSettingsStore,
@@ -543,6 +549,13 @@ interface RenameSessionCommand {
 	title: string;
 }
 
+interface SummarizeTitleCommand {
+	type: "summarize_title";
+	id: string;
+	/** First user message to summarize into a session title. */
+	firstMessage: string;
+}
+
 interface SetSessionPinnedCommand {
 	type: "set_session_pinned";
 	id: string;
@@ -788,6 +801,7 @@ type Command =
 	| LoadSessionCommand
 	| DeleteSessionCommand
 	| RenameSessionCommand
+	| SummarizeTitleCommand
 	| SetSessionPinnedCommand
 	| SearchSessionsCommand
 	| NewSessionCommand
@@ -3640,6 +3654,66 @@ async function main() {
 				send({ type: "result", id: cmd.id, data: { renamed } });
 				break;
 			}
+
+			// ── summarize_title ────────────────────────────────────────
+		case "summarize_title": {
+			log("summarize_title: received firstMessage length=%d", cmd.firstMessage?.length ?? 0);
+			if (!initialized || !modelRegistry || !session) {
+				send({ type: "error", id: cmd.id, message: "Not initialized" });
+				break;
+			}
+			const model = session.model as Model<Api> | undefined;
+			if (!model) {
+				send({ type: "error", id: cmd.id, message: "No active model" });
+				break;
+			}
+			try {
+				const auth = await modelRegistry.getApiKeyAndHeaders(model);
+				if (!auth.ok) {
+					send({ type: "error", id: cmd.id, message: auth.error });
+					break;
+				}
+				const text = prepareTitleInput(cmd.firstMessage);
+				log("summarize_title: using active model=%s", model.id);
+				const reply = await completeSimple(
+					model,
+					{
+						systemPrompt: TITLE_SYSTEM_PROMPT,
+						messages: [
+							{ role: "user", content: text, timestamp: Date.now() },
+						],
+					},
+					{
+						apiKey: auth.apiKey,
+						headers: auth.headers,
+						maxTokens: 40,
+						timeoutMs: 20000,
+					},
+				);
+				const textContent = reply.content.find((c) => c.type === "text");
+				if (
+					!textContent ||
+					reply.stopReason === "error" ||
+					reply.stopReason === "aborted"
+				) {
+					send({
+						type: "error",
+						id: cmd.id,
+						message: reply.errorMessage || "No title generated",
+					});
+					break;
+				}
+				const title = cleanSummaryTitle(textContent.text);
+				send({ type: "result", id: cmd.id, data: { title } });
+			} catch (err) {
+				send({
+					type: "error",
+					id: cmd.id,
+					message: err instanceof Error ? err.message : String(err),
+				});
+			}
+			break;
+		}
 
 			// ── set_session_pinned ─────────────────────────────────────
 			case "set_session_pinned": {

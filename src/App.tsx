@@ -37,6 +37,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fontScaleClass, getFontScale } from "./lib/font-scale";
 import { cn } from "./lib/utils";
+import { deriveRawTitle } from "./lib/sessionTitle";
 
 interface SessionEntry {
 	file: string;
@@ -150,6 +151,9 @@ function App() {
 	/** Messages loaded from a saved session file — merged with stream messages */
 	const [loadedSessionMessages, setLoadedSessionMessages] = useState<ChatMessage[] | null>(null);
 	const [loadingSession, setLoadingSession] = useState(false);
+	// Track which sessions have already had a summarization attempt so we don't
+	// re-fire the LLM on every save/re-render.
+	const summarizeTitleTriedRef = useRef<Set<string>>(new Set());
 
 	// ── Sidecar readiness: drives the startup splash (#169) ──
 	// Listen for the Tauri `ready` event, plus a timeout fallback so the
@@ -398,13 +402,16 @@ function App() {
 		};
 	}, []);
 
-	async function loadSessionList() {
+	async function loadSessionList(): Promise<SessionEntry[]> {
 		try {
 			const result = await invoke("list_sessions");
 			const data = result as { sessions?: SessionEntry[] };
-			setSessionEntries(data.sessions || []);
+			const sessions = data.sessions || [];
+			setSessionEntries(sessions);
+			return sessions;
 		} catch (err) {
 			console.error("Failed to load sessions:", err);
+			return [];
 		}
 	}
 
@@ -423,7 +430,7 @@ function App() {
 			if (merged.length === 0) return;
 
 			const firstMsg = merged[0];
-			const title = typeof firstMsg.content === "string" ? firstMsg.content.slice(0, 80) : "Chat";
+			const title = deriveRawTitle(firstMsg.content);
 
 			// Update loaded messages so the display shows full history
 			setLoadedSessionMessages(merged);
@@ -431,18 +438,15 @@ function App() {
 			// Clear stream messages to prevent duplication on next render
 			dispatch({ type: "RESET" });
 
-			// Save to disk
+			// Save to disk. saveSessionFile on the sidecar preserves a locked title,
+			// so a later user rename is never overwritten by the auto-derived one.
 			invoke("save_session", {
 				sid,
 				title,
 				messages: merged,
 				model: merged.find((m) => m.model)?.model || null,
 				provider: merged.find((m) => m.provider)?.provider || null,
-			})
-				// Reconcile the sidebar with disk truth (so the cwd stamped into the
-				// header drives folder grouping and nothing is "not listed").
-				.then(() => loadSessionList())
-				.catch((err) => console.error("Failed to save session:", err));
+			}).catch((err) => console.error("Failed to save session:", err));
 
 			// Optimistic sidebar entry (folder = active workspace). A user-renamed
 			// (locked) title must not be clobbered by the auto-derived one, and the
@@ -471,6 +475,51 @@ function App() {
 					...filtered,
 				];
 			});
+
+			// After the stream ends, ask the active LLM to summarize the first
+			// user message into a proper title. Doing this after the stream avoids
+			// sidebar races and keeps the title request scoped to just the first
+			// message (no LLM-response bias, minimal tokens).
+			const isFirstTurn = !loadedSessionMessages || loadedSessionMessages.length === 0;
+			const canSummarize =
+				isFirstTurn &&
+				firstMsg.role === "user" &&
+				typeof firstMsg.content === "string" &&
+				firstMsg.content.trim().length > 0 &&
+				!summarizeTitleTriedRef.current.has(sid);
+			console.log("[title] summarize gate", {
+				sid,
+				isFirstTurn,
+				role: firstMsg.role,
+				alreadyTried: summarizeTitleTriedRef.current.has(sid),
+				canSummarize,
+			});
+			if (canSummarize) {
+				summarizeTitleTriedRef.current.add(sid);
+				console.log("[title] requesting summarize_title");
+				invoke("summarize_title", { firstMessage: firstMsg.content })
+					.then(async (res) => {
+						const { title: summary } = (res as { title?: string }) || {};
+						console.log("[title] summarize_title response", summary);
+						if (!summary) return;
+						setSessionEntries((prev) =>
+							prev.map((s) => (s.file === sid ? { ...s, title: summary, titleLocked: true } : s)),
+						);
+						const fresh = await loadSessionList();
+						if (fresh.find((s) => s.file === sid)?.titleLocked) {
+							console.log("[title] user renamed while summarizing; skip rename");
+							return;
+						}
+						console.log("[title] rename_session", sid, summary);
+						await invoke("rename_session", {
+							sessionFile: sid,
+							title: summary,
+						});
+						console.log("[title] renamed; refresh session list");
+						await loadSessionList();
+					})
+					.catch((err) => console.error("Failed to summarize title:", err));
+			}
 		}
 	}, [streamState.isRunning]);
 
@@ -486,7 +535,7 @@ function App() {
 
 			// Immediately show session in sidebar with title from first message
 			if (isNewSession) {
-				const title = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+				const title = deriveRawTitle(text, true);
 				setSessionEntries((prev) => [
 					{
 						file: sessionFile,

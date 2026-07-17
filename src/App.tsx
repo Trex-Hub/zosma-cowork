@@ -408,13 +408,13 @@ function App() {
 				canSummarize,
 			});
 			if (canSummarize) {
-				summarizeTitleTriedRef.current.add(sid);
 				log.debug("[title] requesting summarize_title");
 				invoke("summarize_title", { firstMessage: firstMsg.content })
 					.then(async (res) => {
 						const { title: summary } = (res as { title?: string }) || {};
 						log.debug("[title] summarize_title response", summary);
 						if (!summary) return;
+						summarizeTitleTriedRef.current.add(sid);
 						setSessionEntries((prev) =>
 							prev.map((s) => (s.file === sid ? { ...s, title: summary, titleLocked: true } : s)),
 						);
@@ -811,7 +811,7 @@ function App() {
 		// divided by the scale) so it always paints as exactly one viewport —
 		// otherwise Large/Extra-Large overflows <body>, and focus-scroll clips the
 		// fixed sidebar top-chrome (the New-chat button) off the top. The per-preset
-		<div className="flex md:gap-2.5 md:p-2.5 [zoom:1] h-screen">
+		<div className="flex md:gap-2.5 md:p-2.5 zoom-[1] h-screen">
 			{/* Delete chat confirmation */}
 			<ConfirmDialog
 				open={pendingDelete !== null}

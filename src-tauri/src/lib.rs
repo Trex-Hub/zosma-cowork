@@ -1355,11 +1355,12 @@ async fn rename_session(
 /// LLM. Returns `{ title: string }` on success.
 #[tauri::command]
 async fn summarize_title(first_message: String, s: State<'_, AppState>) -> Result<Value, String> {
+    let id = format!("sumt-{}", uuid_v4());
     scmd_r(
         &s,
         &serde_json::json!({
             "type":"summarize_title",
-            "id":"sumt",
+            "id": id,
             "firstMessage": first_message,
         }),
         std::time::Duration::from_secs(30),

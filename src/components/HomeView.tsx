@@ -221,7 +221,9 @@ export function HomeView({
 					draggable={false}
 				/>
 
-				<h1 className="text-xl font-bold text-center mb-1 text-foreground">Zosma Cowork</h1>
+				<h1 className="text-xl font-bold text-center mb-1 text-foreground">
+					Zosma Cowork
+				</h1>
 				<p className="text-sm text-center mb-8 leading-relaxed text-muted-foreground">
 					Connect your AI accounts and start working — your credentials stay on your machine.
 				</p>

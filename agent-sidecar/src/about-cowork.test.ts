@@ -6,7 +6,7 @@
  * that via progressive disclosure: a shipped ABOUT doc written to disk on init
  * + a tiny pointer block in the system prompt. These tests pin the contract:
  *   - the doc is written to a stable path and is idempotent;
- *   - the doc covers the four pillars (pi engine, extensions, skills, sessions);
+ *   - the doc covers core identity + where sessions live;
  *   - the pointer names the absolute path and stays small.
  */
 
@@ -55,24 +55,13 @@ describe("about-cowork", () => {
 		});
 	});
 
-	describe("ABOUT_COWORK_MD content (four pillars)", () => {
-		it("states it is a GUI on pi-coding-agent and keeps the Zosma identity", () => {
-			expect(ABOUT_COWORK_MD).toMatch(/pi-coding-agent/);
+	describe("ABOUT_COWORK_MD content", () => {
+		it("keeps the Zosma identity", () => {
 			expect(ABOUT_COWORK_MD).toMatch(/Zosma Cowork/);
 		});
 
-		it("documents extensions shared with the pi CLI under ~/.pi/agent", () => {
-			expect(ABOUT_COWORK_MD).toMatch(/extension/i);
-			expect(ABOUT_COWORK_MD).toMatch(/~\/\.pi\/agent/);
-		});
-
-		it("documents skills and skills.sh", () => {
-			expect(ABOUT_COWORK_MD).toMatch(/skill/i);
-			expect(ABOUT_COWORK_MD).toMatch(/skills\.sh/);
-		});
-
-		it("documents where sessions live", () => {
-			expect(ABOUT_COWORK_MD).toMatch(/~\/\.zosmaai\/cowork\/sessions/);
+		it("documents where sessions live (pi-native store)", () => {
+			expect(ABOUT_COWORK_MD).toMatch(/~\/\.pi\/agent\/sessions/);
 		});
 	});
 

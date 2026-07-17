@@ -175,7 +175,7 @@ export function bundledNpmPrefix(
  * (which would go stale on the next app update and break the standalone pi
  * CLI). A user-configured `npmCommand` always wins.
  */
-function applyBundledNpm(settingsManager: SettingsManager): void {
+export function applyBundledNpm(settingsManager: SettingsManager): void {
 	const bundled = bundledNpmCommand();
 	if (!bundled) return;
 	// Pin the bundled npm's global prefix to a user-writable dir so `install -g`

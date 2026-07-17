@@ -3,11 +3,12 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { InThreadFind } from "@/components/InThreadFind";
 import { MessageInput } from "@/components/MessageInput";
 import { useGreeting } from "@/hooks/useGreeting";
-
 import type { ChatMessage, ModelInfo } from "@/types";
 import type { Command } from "@/types/commands";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+export type StreamStateStatus = "idle" | "thinking" | "tool_call" | "responding" | "error";
 
 interface ChatViewProps {
 	messages: ChatMessage[];
@@ -79,7 +80,6 @@ export function ChatView({
 	const [activeMatch, setActiveMatch] = useState(0);
 	const reducedScroll = useReducedMotion();
 	const greeting = useGreeting();
-
 	// Flat, top-to-bottom list of every match (one entry per occurrence).
 	const findMatches = useMemo(() => {
 		const q = findQuery.trim().toLowerCase();
@@ -271,7 +271,11 @@ export function ChatView({
 						    Source of truth is the `queue` prop — NOT state.messages
 						    — so clearQueue() drops every bubble atomically. */}
 						{queuedItems.length > 0 && (
-							<div data-testid="queued-section" className="mx-auto max-w-3xl px-6 mt-1 mb-3">
+							<div
+								data-testid="queued-section"
+								className="mx-auto w-full px-4 mt-1 mb-3"
+								style={{ maxWidth: "var(--chat-max-width, 820px)" }}
+							>
 								<div
 									data-testid="queued-thread"
 									className="ml-11 border-l-2 pl-4 py-1 space-y-1.5 text-sm border-border"
@@ -304,6 +308,8 @@ export function ChatView({
 				)}
 			</div>
 
+			{error && <ErrorBanner error={error} onRetry={onRetry} onSwitchModel={onRetry} />}
+
 			{/* AI greeting above the centered input — empty state only. No
 			    animation: it simply appears with the empty state and is gone once a
 			    message exists. min-h reserves the line so the static→AI swap-in
@@ -316,8 +322,6 @@ export function ChatView({
 					{greeting}
 				</div>
 			)}
-
-			{error && <ErrorBanner error={error} onRetry={onRetry} onSwitchModel={onRetry} />}
 
 			{/* Single persistent MessageInput. Flex positions it: centered (empty,
 			    via the bottom spacer) or pinned to the bottom (active). `layout=
@@ -357,9 +361,9 @@ export function ChatView({
 				/>
 			</motion.div>
 
-			{/* Bottom spacer balances the (empty) scroll area above so the
-			    greeting + input group sits vertically centered. Removed on first
-			    message, which lets the input settle at the bottom. */}
+			{/* Bottom spacer balances the empty scroll area so the input sits
+			    vertically centered on an empty session. Removed on first message,
+			    letting the input settle at the bottom. */}
 			{isEmpty && <div className="flex-1" aria-hidden="true" />}
 		</div>
 	);
